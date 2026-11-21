@@ -25,8 +25,13 @@ By default it takes the library and assets from `../app/src/main` and keeps save
 | Input | Action |
 |---|---|
 | Mouse (left button) | Touch |
-| Arrow keys | Move (the engine's own key support) |
-| Enter, Space or Z | OK / talk |
+| Arrow keys | Move; up jumps |
+| Z, Space or Enter | Button A: attack, talk, confirm |
+| X | Button B: jump |
+| C | Button C |
+| A, S | Quick slots 1 and 2 (potions) |
+| M | Map |
+| Tab | Menu |
 | Esc or Backspace | Android back key |
 | `0`–`9`, `-`, `=` | Phone keypad `0`–`9`, `*`, `#` |
 

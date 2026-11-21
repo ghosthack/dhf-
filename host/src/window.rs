@@ -2,13 +2,14 @@
 
 use crate::audio::Audio;
 use crate::mem::{Fault, R};
-use crate::session::{Input, Session, KEY_DOWN, KEY_LEFT, KEY_OK, KEY_RIGHT, KEY_UP};
+use crate::session::{Input, Session, KEY_BUTTON_C, KEY_DOWN, KEY_JUMP, KEY_LEFT, KEY_MAP, KEY_MENU, KEY_OK, KEY_RIGHT, KEY_SLOT_1, KEY_SLOT_2, KEY_UP};
 use minifb::{Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-/// PC keyboard to the engine's key codes: arrows move, Enter/Space/Z is OK, and the
-/// digit row plus `-` (for `*`) and `=` (for `#`) stand in for a phone keypad.
+/// PC keyboard to the engine's key codes. Arrows move (up jumps); Z, Space and Enter are
+/// the A button; X, C, A and S are the B button, the C button and the two quick slots.
+/// The digit row plus `-` (for `*`) and `=` (for `#`) stand in for a phone keypad.
 fn key_code(k: Key) -> Option<i32> {
     Some(match k {
         Key::Up => KEY_UP,
@@ -16,6 +17,12 @@ fn key_code(k: Key) -> Option<i32> {
         Key::Left => KEY_LEFT,
         Key::Right => KEY_RIGHT,
         Key::Enter | Key::Space | Key::Z => KEY_OK,
+        Key::X => KEY_JUMP,
+        Key::C => KEY_BUTTON_C,
+        Key::A => KEY_SLOT_1,
+        Key::S => KEY_SLOT_2,
+        Key::M => KEY_MAP,
+        Key::Tab => KEY_MENU,
         Key::Key0 | Key::NumPad0 => b'0' as i32,
         Key::Key1 | Key::NumPad1 => b'1' as i32,
         Key::Key2 | Key::NumPad2 => b'2' as i32,
