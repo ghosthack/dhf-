@@ -1,0 +1,9 @@
+# The game's library and assets must reach the working tree byte for byte. Many asset
+# files are text-like (scripts, encoded tables), so without this Git for Windows would
+# rewrite their line endings on checkout and the game could no longer read them.
+app/src/main/assets/** binary
+app/src/main/libs/** binary
+*.so binary
+*.dex binary
+*.idb binary
+*.jar binary
