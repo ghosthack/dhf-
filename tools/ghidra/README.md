@@ -1,7 +1,7 @@
 # Ghidra helper scripts
 
-Two small scripts for reading `libdhunter.so` with Ghidra in headless mode. They only read
-the binary; they do not modify or rebuild anything.
+Small scripts for reading `libdhunter.so`, two of them with Ghidra in headless mode. They
+only read the binary; they do not modify or rebuild anything.
 
 - `Decomp.java`: decompiles the named functions and writes each to `<name>.c` in an output
   folder.
