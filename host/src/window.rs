@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 /// PC keyboard to the engine's key codes. Arrows move (up jumps); Z, Space and Enter are
 /// the A button; X, C, A and S are the B button, the C button and the two quick slots.
-/// The digit row plus `-` (for `*`) and `=` (for `#`) stand in for a phone keypad.
+/// The numeric keypad plus `-` (for `*`) and `=` (for `#`) stand in for a phone keypad.
 fn key_code(k: Key) -> Option<i32> {
     Some(match k {
         Key::Up => KEY_UP,
@@ -23,20 +23,41 @@ fn key_code(k: Key) -> Option<i32> {
         Key::S => KEY_SLOT_2,
         Key::M => KEY_MAP,
         Key::Tab => KEY_MENU,
-        Key::Key0 | Key::NumPad0 => b'0' as i32,
-        Key::Key1 | Key::NumPad1 => b'1' as i32,
-        Key::Key2 | Key::NumPad2 => b'2' as i32,
-        Key::Key3 | Key::NumPad3 => b'3' as i32,
-        Key::Key4 | Key::NumPad4 => b'4' as i32,
-        Key::Key5 | Key::NumPad5 => b'5' as i32,
-        Key::Key6 | Key::NumPad6 => b'6' as i32,
-        Key::Key7 | Key::NumPad7 => b'7' as i32,
-        Key::Key8 | Key::NumPad8 => b'8' as i32,
-        Key::Key9 | Key::NumPad9 => b'9' as i32,
+        Key::NumPad0 => b'0' as i32,
+        Key::NumPad1 => b'1' as i32,
+        Key::NumPad2 => b'2' as i32,
+        Key::NumPad3 => b'3' as i32,
+        Key::NumPad4 => b'4' as i32,
+        Key::NumPad5 => b'5' as i32,
+        Key::NumPad6 => b'6' as i32,
+        Key::NumPad7 => b'7' as i32,
+        Key::NumPad8 => b'8' as i32,
+        Key::NumPad9 => b'9' as i32,
         Key::Minus => b'*' as i32,
         Key::Equal => b'#' as i32,
         _ => return None,
     })
+}
+
+/// The skill icons down both sides of the play screen have no key codes in the engine:
+/// only a touch on the icon uses the skill. So the number row presses the icon instead.
+/// 1-5 are the left column from the top, 6-0 the right column from the top.
+fn skill_icon(k: Key) -> Option<(i32, i32)> {
+    let slot = match k {
+        Key::Key1 => 0,
+        Key::Key2 => 1,
+        Key::Key3 => 2,
+        Key::Key4 => 3,
+        Key::Key5 => 4,
+        Key::Key6 => 5,
+        Key::Key7 => 6,
+        Key::Key8 => 7,
+        Key::Key9 => 8,
+        Key::Key0 => 9,
+        _ => return None,
+    };
+    // Icon centres on the 480x320 game surface: two columns of five, 40 pixels apart.
+    Some((if slot < 5 { 20 } else { 460 }, 25 + 40 * (slot % 5)))
 }
 
 pub fn run(s: &mut Session, assets: &Path, scale: u32, default_step_ms: u32) -> R<()> {
@@ -83,6 +104,8 @@ pub fn run(s: &mut Session, assets: &Path, scale: u32, default_step_ms: u32) -> 
                 k => {
                     if let Some(code) = key_code(k) {
                         s.input(Input::KeyDown(code))?;
+                    } else if let Some((x, y)) = skill_icon(k) {
+                        s.input(Input::TouchDown(x, y))?;
                     }
                 }
             }
@@ -90,6 +113,8 @@ pub fn run(s: &mut Session, assets: &Path, scale: u32, default_step_ms: u32) -> 
         for k in win.get_keys_released() {
             if let Some(code) = key_code(k) {
                 s.input(Input::KeyUp(code))?;
+            } else if let Some((x, y)) = skill_icon(k) {
+                s.input(Input::TouchUp(x, y, x, y))?;
             }
         }
 
