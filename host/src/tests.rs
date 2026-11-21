@@ -416,6 +416,45 @@ fn headless_runs_are_reproducible() {
     assert!(frame() == frame(), "two runs with the same input must draw the same frame");
 }
 
+#[cfg(feature = "window")]
+#[test]
+fn the_picture_is_scaled_centred_and_clicks_map_back() {
+    use crate::window::Viewport;
+    let game = (480, 320);
+    // Same shape as the game: fills the window exactly.
+    assert_eq!(Viewport::fit(game, (960, 640), false), Viewport { scale: 2.0, x: 0.0, y: 0.0 });
+    // A wide window: full height, bars left and right.
+    let wide = Viewport::fit(game, (1920, 1080), false);
+    assert_eq!((wide.scale, wide.x, wide.y), (3.375, 150.0, 0.0));
+    // Whole-number scaling trades size for evenly sized pixels.
+    assert_eq!(Viewport::fit(game, (1920, 1080), true), Viewport { scale: 3.0, x: 240.0, y: 60.0 });
+    // A window smaller than the game shrinks it, whole-number or not.
+    assert_eq!(Viewport::fit(game, (240, 300), true).scale, 0.5);
+    // Degenerate sizes must not divide by zero or panic.
+    for w in [(0, 0), (1, 1), (1, 5000), (5000, 1)] {
+        let v = Viewport::fit(game, w, false);
+        assert!(v.scale > 0.0);
+        v.to_game(game, (0.0, 0.0));
+        v.blit(game, &vec![0; 480 * 320], w, &mut vec![0; (w.0 * w.1) as usize]);
+    }
+
+    // Clicks: corners of the picture, the middle, and the bars (clamped to the edge).
+    assert_eq!(wide.to_game(game, (150.0, 0.0)), (0, 0));
+    assert_eq!(wide.to_game(game, (1769.9, 1079.9)), (479, 319));
+    assert_eq!(wide.to_game(game, (960.0, 540.0)), (240, 160));
+    assert_eq!(wide.to_game(game, (10.0, 540.0)), (0, 160));
+    assert_eq!(wide.to_game(game, (1900.0, -50.0)), (479, 0));
+
+    // Drawing: a 2x2 picture into a 6x4 window is doubled, with one-pixel bars either side.
+    let (v, mut out) = (Viewport::fit((2, 2), (6, 4), false), vec![9u32; 24]);
+    v.blit((2, 2), &[1, 2, 3, 4], (6, 4), &mut out);
+    assert_eq!(out, [0, 1, 1, 2, 2, 0, 0, 1, 1, 2, 2, 0, 0, 3, 3, 4, 4, 0, 0, 3, 3, 4, 4, 0]);
+    // A buffer of the wrong size is left alone rather than overrun.
+    let mut short = vec![9u32; 5];
+    v.blit((2, 2), &[1, 2, 3, 4], (6, 4), &mut short);
+    assert_eq!(short, [9; 5]);
+}
+
 /// The whole sound path except the last hop to a device: game requests go in, and the
 /// samples a sound card would have been given come out.
 #[cfg(feature = "audio")]

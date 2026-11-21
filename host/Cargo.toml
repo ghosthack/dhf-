@@ -12,13 +12,14 @@ miniz_oxide = "0.8"
 fontdue = "0.9"
 encoding_rs = "0.8"
 sha2 = "0.10"
-minifb = { version = "0.28", optional = true, default-features = false, features = ["x11", "wayland"] }
+winit = { version = "0.30", optional = true }
+softbuffer = { version = "0.4", optional = true }
 rodio = { version = "0.20", optional = true, default-features = false, features = ["vorbis", "symphonia-mp3"] }
 
 [features]
 default = ["window", "audio"]
-# A window with mouse input. Without it only --headless is available.
-window = ["dep:minifb"]
+# A resizable window with mouse and keyboard input. Without it only --headless is available.
+window = ["dep:winit", "dep:softbuffer"]
 # Sound output (needs the ALSA development files on Linux).
 audio = ["dep:rodio"]
 

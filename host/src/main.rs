@@ -43,6 +43,8 @@ struct Args {
     dump: Option<PathBuf>,
     dump_every: u32,
     scale: u32,
+    fullscreen: bool,
+    whole_scale: bool,
     screen: (u32, u32),
     /// `--lang`: (two-letter code reported to the game, the game's own language code).
     language: Option<(String, u8)>,
@@ -68,7 +70,9 @@ fn usage() -> ! {
          \x20                   save in the game afterwards to keep them\n\
          \x20 --country CODE    country code reported to the game (default: US)\n\
          \x20 --screen WxH      device resolution reported to the game (default: 480x320)\n\
-         \x20 --scale N         window scale: 1, 2 or 4 (default: 2)\n\
+         \x20 --scale N         starting window size as a multiple of 480x320 (default: 2)\n\
+         \x20 --fullscreen      start fullscreen (F11 or Alt+Enter switches while running)\n\
+         \x20 --integer-scale   only enlarge by whole numbers: sharper pixels, wider black bars\n\
          \n\
          headless mode (no window, virtual clock, reproducible):\n\
          \x20 --headless        run without a window\n\
@@ -100,6 +104,8 @@ fn parse_args() -> Args {
         dump: None,
         dump_every: 10,
         scale: 2,
+        fullscreen: false,
+        whole_scale: false,
         screen: (480, 320),
         language: None,
         country: "US".into(),
@@ -140,6 +146,8 @@ fn parse_args() -> Args {
                 a.screen = (num(w), num(h));
             }
             "--scale" => a.scale = num(&val()),
+            "--fullscreen" => a.fullscreen = true,
+            "--integer-scale" => a.whole_scale = true,
             "--headless" => a.headless = true,
             "--frames" => a.frames = num(&val()),
             "--step-ms" => a.step_ms = num::<u32>(&val()).max(1),
@@ -278,7 +286,8 @@ fn run(a: &Args) -> Result<(), String> {
     } else {
         #[cfg(feature = "window")]
         {
-            window::run(&mut s, &a.assets, a.scale, a.step_ms)
+            let opts = window::WindowOptions { scale: a.scale, fullscreen: a.fullscreen, whole_scale: a.whole_scale };
+            window::run(&mut s, &a.assets, opts, a.step_ms)
         }
         #[cfg(not(feature = "window"))]
         {
