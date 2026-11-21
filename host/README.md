@@ -38,11 +38,11 @@ By default it takes the library and assets from `../app/src/main` and keeps save
 | F11 or Alt+Enter | Fullscreen on and off |
 | Numeric keypad, `-`, `=` | Phone keypad `0`–`9`, `*`, `#` |
 
-**Window.** The window can be resized freely; the game picture is enlarged to fit and
-centred, with black bars where the shapes differ. F11 or Alt+Enter switches fullscreen,
-`--fullscreen` starts that way, and `--scale N` sets the starting size. `--integer-scale`
-enlarges only by whole numbers, which keeps every pixel the same size at the cost of
-wider bars.
+**Window.** The window can be resized freely; the game picture is enlarged by the largest
+whole number that fits and centred, with black bars around it, so every pixel stays the
+same size. `--stretch` instead fills the window as far as its shape allows: a bigger
+picture, but some pixels come out a little wider than others. F11 or Alt+Enter switches
+fullscreen, `--fullscreen` starts that way, and `--scale N` sets the starting size.
 
 **Language.** The bundled configuration is set to Chinese. `--lang en` (or `ko`, `ja`,
 `zh`, `es`, `fr`, `de`) changes it: the host sets the language through the game's own
