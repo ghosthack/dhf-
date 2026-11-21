@@ -90,14 +90,34 @@ and file names follow `<letter><number><letter>`, for example `I12I`.
 
 | Folder | Contents | Status |
 |---|---|---|
-| `I` | Images: sprites, UI, effects, logos (4,210 images in 134 files per set) | Decoded |
+| `I` | Images: sprites, UI, effects, portraits, item icons (4,210 per set) | Decoded |
+| `A` | Animations: characters, body parts, weapons, effects, portraits (2,756 per set) | Decoded and playable |
+| `T` | Data tables: items, skills, quests, monsters, tips, UI text (43 tables, 1,983 rows) | Decoded, all 7 languages |
+| `S` | Scripts: events and dialogue | Text extracted; commands not decoded |
+| `U` | UI layouts | Text extracted; layout not decoded |
 | `B` | Music (`.mp3`) | Plays |
 | `W` | Sound effects (`.ogg`) | Plays |
-| `A`, `M`, `O`, `R`, `S`, `T`, `U`, `F`, `P`, `V` | Animations, maps, objects, scripts, fonts and other data | Not decoded yet; shown as hex and text |
-| `Idx*` | Index tables for each folder | Not decoded yet |
+| `M`, `O`, `R`, `F`, `P`, `V` | Maps, objects, fonts and other data | Not decoded yet; shown as hex and text |
 
-Files with a language suffix (for example `S0SC`, `S0SE`, `S0SF`, `S0SG`, `S0SJ`, `S0SS`)
-appear to be translations.
+Folders `O`, `R`, `S`, `T` and `U` exist in seven languages, marked by a suffix on the
+file name: none for Korean, then `C` Chinese, `E` English, `F` French, `G` German,
+`J` Japanese and `S` Spanish (for example `T0TE` is the English version of `T0T`).
+Text is UTF-8.
+
+**Resource indexes.** The game refers to assets by resource ID, not file name. The folder
+letters are numbered by the string `BWPIFATOMUSR` (so images are type 3, animations 5,
+tables 6). Each folder has an index file `Idx<letter>[suffix]`:
+
+| Field | Size | Notes |
+|---|---|---|
+| format | u8 | 1 = 32-bit fields (all shipped indexes); 0 = 16-bit offset and size |
+| compressed | u8 | 1 = data files are raw LZMA (properties `5d`, 1 MB dictionary); 0 in all shipped files |
+| file count | int32 | |
+| file sizes | file count × u32 | uncompressed size of each data file |
+| entries | 12 bytes each | int32 file number, u32 offset, u32 size |
+
+Resource ID *n* is entry *n* (1-based). Its data is `size` bytes at `offset` in
+`<letter><file number><letter>[suffix]`. From `IRS_Open` and `IRS_GetIndexData`.
 
 **Image format (`I` files).** Each file is a series of images back to back, with no file
 header. Each image is:
@@ -112,9 +132,71 @@ header. Each image is:
 | pixels | w × h × 1 or 2 bytes | 8-bit palette indices if `flags & 0x10`, RGB565 if `flags & 0x20` |
 | alpha | w × h bytes | only if `flags & 0x02` |
 
-If `flags & 0x01` is set, palette index 0 is transparent. The layout comes from the game's
-`II_GetImagePtr` and `II_GetImageAlphaPtr` functions, and every image file in both sets
-parses to its exact last byte with it.
+For 8-bit images without an alpha channel, palette index 0 is transparent (the game's
+renderer always skips it). The layout comes from the game's `II_GetImagePtr` and
+`II_GetImageAlphaPtr` functions, and every image file in both sets parses to its exact
+last byte with it.
+
+**Animation format (`A` resources).** From `IANI_Load`, `IFRM_Load` and `IFRM_Draw`. All
+integers little-endian.
+
+```
+animation:
+  u8 nameLength, name bytes
+  u8 type                     (0 or 1)
+  u32 (not used by the loader beyond reading it)
+  u8 flags
+  u8 imageCount, imageCount × u32 image IDs     (images to preload)
+  u8 frameCount, frameCount × frame
+  if flags & 0x20: frameCount × u16 sound reference (a data-table reference, see below)
+
+frame:
+  u8 layerCount, layerCount × layer
+  u8 extra ticks              (frame lasts extra + 1 ticks; values ≥ 150 count as 1)
+  if flags & 0x80: u16
+  if flags & 0x40: u16
+  u8 count, count × box       (box set 1)
+  u8 count, count × box       (box set 2)
+
+layer:
+  int16 x, int16 y            (top-left, relative to the animation's origin)
+  if flags & 0x10: int16 width, int16 height   (draw size; 0 = image's own size)
+  if flags & 0x08: u8 alpha
+  if flags & 0x04: u8 orientation
+  if flags & 0x02: u8 blend mode
+  u32 image ID
+
+box: int16 x1, y1, x2, y2     (inclusive corners)
+```
+
+Orientation: 0 none, 1 flip horizontally, 2 flip vertically, 3 rotate 90° clockwise,
+4 rotate 90° counter-clockwise, 5 anti-transpose, 6 transpose, 7 rotate 180°. Only 0, 1, 2
+and 7 occur in the data. Blend modes (from `ES_DrawTexture`) never occur. The two box sets
+look like body and attack boxes but this is not confirmed. Player characters are built
+from several animations drawn together (body parts, outfit, weapon); the browser can
+stack animations to show this. The tick rate is not confirmed; the browser defaults to
+15 ticks per second.
+
+**Data tables (`T` resources).** From `IGD_Load`, `IFS_GTableDeCode` and
+`IVO_LoadVariantObj`. Code refers to a table row as `tableID × 256 + row`.
+
+Each resource stores the same table twice (int32 length + bytes, twice). Each copy is a
+4-byte seed, then text that is RC4-encrypted and base64-encoded, then one trailing byte.
+The RC4 key is the decimal string of a signed 32-bit value whose bytes are, from low to
+high: `0x65` if the seed is 0 else `0x64`; `0x72`, `0x6f` and `0x63`, each XORed with 1
+if the seed's byte 1, 2 or 3 respectively (counting from the low byte) is non-zero.
+Note: the game's RC4 swaps with XOR, which zeroes a value when both indexes are equal;
+a standard RC4 gives slightly wrong output. Both copies decode to identical data for every
+table in every language and set.
+
+Decoded table: u8 row count, u8 column count, column count × u8 type, row count × int32
+row offset, then each row's cells in column order. Cell types: 0, 1, 5 u8; 2 i8; 3 i16;
+4 i32; 6, 16 u16; 7 u32; 10 text (u8 length); 11, 14, 15 text (u16 length); 12 palette ID
+(u16); 13 image ID (u32); 17 animation list (int16 total, int16 n, n × (u16, u16)).
+Column meanings are not stored; table 34 is an empty placeholder.
+
+**Scripts (`S`).** Strings are stored with a length byte in front (the length counts a
+terminating NUL). The command format around them (`ISRT_Load`) is not decoded yet.
 
 ## What we know about the native binary
 
