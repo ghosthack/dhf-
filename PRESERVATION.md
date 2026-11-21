@@ -97,7 +97,8 @@ and file names follow `<letter><number><letter>`, for example `I12I`.
 | `U` | UI layouts | Text extracted; layout not decoded |
 | `B` | Music (`.mp3`) | Plays |
 | `W` | Sound effects (`.ogg`) | Plays |
-| `M`, `O`, `R`, `F`, `P`, `V` | Maps, objects, fonts and other data | Not decoded yet; shown as hex and text |
+| `M` + `R` | Maps: tile layers, objects, properties; `R` holds names and properties (296 maps) | Decoded and drawn |
+| `O`, `F`, `P`, `V` | Object definitions, fonts, palettes (`V` is empty) | Not decoded yet; shown as hex and text |
 
 Folders `O`, `R`, `S`, `T` and `U` exist in seven languages, marked by a suffix on the
 file name: none for Korean, then `C` Chinese, `E` English, `F` French, `G` German,
@@ -194,6 +195,38 @@ row offset, then each row's cells in column order. Cell types: 0, 1, 5 u8; 2 i8;
 4 i32; 6, 16 u16; 7 u32; 10 text (u8 length); 11, 14, 15 text (u16 length); 12 palette ID
 (u16); 13 image ID (u32); 17 animation list (int16 total, int16 n, n × (u16, u16)).
 Column meanings are not stored; table 34 is an empty placeholder.
+
+**Maps (`M` and `R` resources).** From `IMAP_Load`, `IMAP_LoadBaseMap`, `IML_Load` and
+`IMAP_Draw`. A map ID opens the same resource ID in `M` (tiles, layers, objects) and `R`
+(name and properties, translated).
+
+```
+R: name, u16 engine, u16 music, u8, u16 base map ID,
+   u8 property count, properties: u8 type, name, value
+   (value has a u16 length for types 11, 14, 15, otherwise u8; for a base map, those
+   long values are read from M instead)
+M: u8 cell format (1 = 16-bit cells, else 8-bit)
+   tile list (only for base maps, and maps whose base map ID is 0):
+     count (u16 if 16-bit cells, else u8), count × u32 image ID
+   u16
+   u8 layer count, layers
+
+layer: int16 tile width, tile height, columns, rows
+  if columns × rows > 0:
+    cells (u8 or u16 each; value v draws tile v − 1 of the tile list, 0 = empty)
+    u16 flags per cell (bit 0 mirrors the tile horizontally; other bits do not affect
+    drawing, probably collision or terrain)
+    u8 marker; if 1, one more byte per cell
+  else: u8
+  u16 object count, objects:
+    type, name, int16 x, int16 y, u8, u8 property count, (u8 index, text) pairs
+```
+
+A map with a base map uses the base map's tile list, and the base map's layers are added
+as a wider background layer (probably parallax). There are 9 base maps. Object types use
+prefixes such as `M_` (monster spawns), `MA_` (areas and exits), `MO_` (doors and other
+map objects) and `MB_` (boxes); what each becomes is decided by game code
+(`IGM_GenMapGObject`) and is not decoded.
 
 **Scripts (`S`).** Strings are stored with a length byte in front (the length counts a
 terminating NUL). The command format around them (`ISRT_Load`) is not decoded yet.

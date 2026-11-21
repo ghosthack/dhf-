@@ -108,7 +108,7 @@ details > summary { cursor: pointer; color: var(--muted); }
     <div class="empty">
       <p>Open the game's <code>assets</code> folder (for example <code>app/src/main/assets</code>), or drag it onto this page.</p>
       <p>Everything is decoded locally in your browser. Nothing is uploaded.</p>
-      <p>Images (<code>I</code>), animations (<code>A</code>) and data tables (<code>T</code>: items, skills, quests, tips…) are decoded. Scripts (<code>S</code>) and UI (<code>U</code>) show their text. Music (<code>B</code>) and sound effects (<code>W</code>) play. Other folders use formats that are not decoded yet and are shown as hex and text.</p>
+      <p>Images (<code>I</code>), animations (<code>A</code>), data tables (<code>T</code>: items, skills, quests, tips…) and maps (<code>M</code>) are decoded. Scripts (<code>S</code>) and UI (<code>U</code>) show their text. Music (<code>B</code>) and sound effects (<code>W</code>) play. Other folders use formats that are not decoded yet and are shown as hex and text.</p>
     </div>
   </section>
 </main>
@@ -338,6 +338,106 @@ function parseTable(raw) {
   }
   return out;
 }
+// ---- Maps (M + R) -------------------------------------------------------------
+// From IMAP_Load, IMAP_LoadBaseMap, IML_Load and IMAP_Draw. A map ID opens the same
+// resource ID in M (tiles, layers, objects) and R (name and properties; translated).
+// R: name, u16 engine, u16 music, u8, u16 base map ID, u8 property count, properties
+//    (u8 type, name, value: u16-length text for types 11, 14, 15, else u8-length).
+//    For a base map, the long-text property values are read from M instead.
+// M: u8 cell format (1 = 16-bit cells), tile list (only for base maps and maps with
+//    no base: u8/u16 count + u32 image IDs), u16, u8 layer count, layers.
+// Layer: int16 tile w, tile h, columns, rows; if cells: cells (u8/u16, value v draws
+//    tile v-1, 0 = empty), u16 flags per cell (bit 0 mirrors the tile), u8 marker and,
+//    if 1, one more byte per cell; then u16 object count and objects: type, name,
+//    int16 x, y, u8, u8 property count + (u8 index, text) pairs.
+function makeReader(u8) {
+  const d = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const r = { p: 0, u8: () => u8[r.p++], i16: () => { const v = d.getInt16(r.p, true); r.p += 2; return v; },
+    u16: () => { const v = d.getUint16(r.p, true); r.p += 2; return v; }, u32: () => { const v = d.getUint32(r.p, true); r.p += 4; return v; },
+    str: () => { const n = u8[r.p++]; const v = utf8.decode(u8.subarray(r.p, r.p + n)).replace(/\0+$/, ""); r.p += n; return v; },
+    lstr: () => { const n = r.u16(); const v = utf8.decode(u8.subarray(r.p, r.p + n)).replace(/\0+$/, ""); r.p += n; return v; },
+    end: () => r.p === u8.length };
+  return r;
+}
+async function parseMap(set, id, suffix, asBase) {
+  const mu8 = await getResource(set, "M", id), ru8 = await getResource(set, "R", id, suffix) || await getResource(set, "R", id);
+  if (!mu8 || !ru8) return null;
+  const M = makeReader(mu8), P = makeReader(ru8);
+  const m = { id, name: P.str(), engine: P.u16(), music: P.u16(), c: P.u8(), base: P.u16(), props: [], layers: [] };
+  for (let n = P.u8(); n > 0; n--) {
+    const t = P.u8(), k = P.str();
+    const long = t === 11 || t === 14 || t === 15;
+    m.props.push([k, long ? (asBase ? M.lstr() : P.lstr()) : P.str()]);
+  }
+  const wide = M.u8() === 1;
+  if (asBase || !m.base) { const n = wide ? M.u16() : M.u8(); m.tiles = []; for (let i = 0; i < n; i++) m.tiles.push(M.u32()); }
+  M.u16();
+  for (let n = M.u8(); n > 0; n--) {
+    const L = { tw: M.i16(), th: M.i16(), cols: M.i16(), rows: M.i16(), objects: [] }, c = L.cols * L.rows;
+    if (!c) M.u8();
+    else {
+      L.cells = new Uint16Array(c); L.flags = new Uint16Array(c);
+      for (let i = 0; i < c; i++) L.cells[i] = wide ? M.u16() : M.u8();
+      for (let i = 0; i < c; i++) L.flags[i] = M.u16();
+      if (M.u8() === 1) { L.extra = new Uint8Array(c); for (let i = 0; i < c; i++) L.extra[i] = M.u8(); }
+    }
+    for (let k = M.u16(); k > 0; k--) {
+      const o = { type: M.str(), name: M.str(), x: M.i16(), y: M.i16(), c: M.u8(), props: [] };
+      for (let j = M.u8(); j > 0; j--) o.props.push([M.u8(), M.str()]);
+      L.objects.push(o);
+    }
+    m.layers.push(L);
+  }
+  m.exact = M.end() && P.end();
+  if (!asBase && m.base) m.baseMap = await parseMap(set, m.base, suffix, true);
+  m.tileList = m.tiles || (m.baseMap && m.baseMap.tiles) || [];
+  return m;
+}
+async function drawMap(cv, set, m, opt) {
+  const layers = [...(opt.background && m.baseMap ? m.baseMap.layers.map((L) => ({ L, bg: true })) : []), ...m.layers.map((L) => ({ L, bg: false }))];
+  const fg = m.layers.filter((L) => L.cells);
+  const W = Math.max(1, ...(fg.length ? fg : layers.map((x) => x.L)).map((L) => L.cols * L.tw));
+  const H = Math.max(1, ...(fg.length ? fg : layers.map((x) => x.L)).map((L) => L.rows * L.th));
+  const z = opt.zoom || 1;
+  cv.width = W * z; cv.height = H * z;
+  const ctx = cv.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.setTransform(z, 0, 0, z, 0, 0);
+  const tiles = await Promise.all(m.tileList.map((id) => getImage(set, id)));
+  for (const { L, bg } of layers) {
+    if (!L.cells) continue;
+    ctx.globalAlpha = bg ? 0.75 : 1;
+    for (let r = 0; r < L.rows; r++) for (let c = 0; c < L.cols; c++) {
+      const i = r * L.cols + c, v = L.cells[i];
+      const t = v && tiles[v - 1];
+      if (!t) continue;
+      const x = c * L.tw, y = r * L.th;
+      if (L.flags[i] & 1) { ctx.save(); ctx.transform(-1, 0, 0, 1, 2 * x + t.width, 0); ctx.drawImage(t, x, y); ctx.restore(); }
+      else ctx.drawImage(t, x, y);
+    }
+  }
+  ctx.globalAlpha = 1;
+  if (opt.flags) for (const L of m.layers) {
+    if (!L.cells) continue;
+    for (let i = 0; i < L.cells.length; i++) {
+      const f = L.flags[i] & ~1;
+      if (!f) continue;
+      ctx.fillStyle = `hsla(${(f * 47) % 360}, 80%, 50%, 0.35)`;
+      ctx.fillRect((i % L.cols) * L.tw, Math.floor(i / L.cols) * L.th, L.tw, L.th);
+    }
+  }
+  if (opt.objects) {
+    const css = getComputedStyle(document.documentElement);
+    ctx.font = "9px system-ui, sans-serif";
+    for (const L of m.layers) for (const o of L.objects) {
+      ctx.fillStyle = css.getPropertyValue("--box2"); ctx.beginPath(); ctx.arc(o.x, o.y, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(0,0,0,0.65)"; const label = o.name || o.type, w = ctx.measureText(label).width;
+      ctx.fillRect(o.x + 4, o.y - 6, w + 4, 11);
+      ctx.fillStyle = "#fff"; ctx.fillText(label, o.x + 6, o.y + 2);
+    }
+  }
+}
+
 // In-game text markup: "|" is a line break, "&<letter>" starts a colour, "&0" resets.
 function richText(s) {
   let html = "", open = false;
@@ -531,6 +631,7 @@ async function open(cat, entry) {
   }
   if (cat === "A" && no !== null) { await renderAnimations(view, no, token); return; }
   if (cat === "T" && no !== null) { await renderTables(view, no, pn.suffix, token); return; }
+  if (cat === "M" && no !== null) { await renderMaps(view, no, token); return; }
   if ((cat === "S" || cat === "U") && no !== null) { renderText(view, u8, pn.suffix); return; }
   renderHex(view, u8);
 }
@@ -580,6 +681,56 @@ async function renderTables(view, fileNo, suffix, token) {
     wrap.appendChild(table);
     view.appendChild(wrap);
   }
+}
+async function renderMaps(view, fileNo, token) {
+  const set = state.set, ids = await idsInFile(set, "M", fileNo);
+  const langs = Object.keys(LANGUAGES).filter((s) => entry(set, "R", "IdxR" + s));
+  const bar = document.createElement("div");
+  bar.className = "controls";
+  bar.innerHTML = `<label>Names in <select data-a="lang">${langs.map((s) => `<option value="${s}"${s === (state.mapLang || "") ? " selected" : ""}>${LANGUAGES[s]}</option>`).join("")}</select></label>
+    <label><input type="checkbox" data-a="bg" ${state.mapBg !== false ? "checked" : ""}> Background (base map)</label>
+    <label><input type="checkbox" data-a="obj" ${state.mapObj ? "checked" : ""}> Objects</label>
+    <label><input type="checkbox" data-a="flags" ${state.mapFlags ? "checked" : ""}> Cell flags</label>
+    <label>Zoom <select data-a="mz">${[1, 2, 3].map((z) => `<option${z === (state.mapZoom || 2) ? " selected" : ""}>${z}</option>`).join("")}</select></label>`;
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${ids.length} map${ids.length === 1 ? "" : "s"} in this file. Objects are marked with their type or name; what they become in game (monsters, exits, decorations) is set by game code. Cell flags tint cells whose flags are set (probably collision or terrain; not confirmed).</p>`);
+  view.appendChild(bar);
+  const host = document.createElement("div");
+  view.appendChild(host);
+  const q = (a) => bar.querySelector(`[data-a="${a}"]`);
+  const draw = async () => {
+    state.mapLang = q("lang").value; state.mapBg = q("bg").checked; state.mapObj = q("obj").checked; state.mapFlags = q("flags").checked; state.mapZoom = +q("mz").value;
+    host.innerHTML = "";
+    for (const { id } of ids) {
+      const m = await parseMap(set, id, state.mapLang);
+      if (state.file !== token) return;
+      if (!m) continue;
+      const card = document.createElement("div");
+      card.className = "player";
+      const L = m.layers.find((l) => l.cells);
+      const objs = m.layers.reduce((s, l) => s + l.objects.length, 0);
+      card.innerHTML = `<div><strong>${esc(m.name || "(unnamed)")}</strong><span class="meta"> · map ${id}${m.base ? ` · base map ${m.base}` : " · base map"}${L ? ` · ${L.cols}×${L.rows} tiles of ${L.tw}×${L.th}` : ""} · ${objs} objects · music ${m.music}${m.exact ? "" : " · not fully parsed"}</span></div>`;
+      const wrap = document.createElement("div");
+      wrap.className = "canvas-wrap";
+      const cv = document.createElement("canvas");
+      cv.className = "px";
+      wrap.appendChild(cv);
+      card.appendChild(wrap);
+      if (m.props.length) {
+        const det = document.createElement("details");
+        det.innerHTML = `<summary>Properties (${m.props.length})</summary><pre>${m.props.map(([k, v]) => `${esc(k)} = ${esc(v)}`).join("\n")}</pre>`;
+        card.appendChild(det);
+      }
+      if (objs) {
+        const det = document.createElement("details");
+        det.innerHTML = `<summary>Objects (${objs})</summary><pre>${m.layers.flatMap((l) => l.objects).map((o) => `${esc(o.type)}${o.name ? " “" + esc(o.name) + "”" : ""} at ${o.x}, ${o.y}${o.props.length ? " · " + o.props.map(([i, v]) => `${i}=${esc(v)}`).join(", ") : ""}`).join("\n")}</pre>`;
+        card.appendChild(det);
+      }
+      host.appendChild(card);
+      await drawMap(cv, set, m, { zoom: state.mapZoom, background: state.mapBg, objects: state.mapObj, flags: state.mapFlags });
+    }
+  };
+  bar.onchange = draw;
+  await draw();
 }
 function textRuns(u8) {
   const runs = [];
