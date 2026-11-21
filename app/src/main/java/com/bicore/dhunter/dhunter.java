@@ -3,9 +3,9 @@ package com.bicore.dhunter;
 import android.os.Bundle;
 import android.util.Log;
 
-import com.bicore.KTMarket;
+import com.bicore.BicoreActivity;
 
-public class dhunter extends KTMarket {
+public class dhunter extends BicoreActivity {
     static {
         System.loadLibrary("dhunter");
         iContentsWidth = -1;

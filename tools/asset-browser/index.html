@@ -1,0 +1,1288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asset Browser</title>
+<style>
+:root {
+  --bg: #f6f6f4; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70;
+  --border: #e2e2e0; --accent: #3557c7; --accent-text: #ffffff;
+  --sel: #e8edfb; --check-a: #e9e9e9; --check-b: #ffffff;
+  --box1: #1f9d55; --box2: #d23f3f; --origin: #3557c7;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151517; --panel: #1e1e21; --text: #ececee; --muted: #9a9aa2;
+    --border: #2e2e33; --accent: #7b96f0; --accent-text: #101014;
+    --sel: #262c40; --check-a: #2a2a2e; --check-b: #333338;
+    --box1: #4cc982; --box2: #f07070; --origin: #7b96f0;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151517; --panel: #1e1e21; --text: #ececee; --muted: #9a9aa2;
+  --border: #2e2e33; --accent: #7b96f0; --accent-text: #101014;
+  --sel: #262c40; --check-a: #2a2a2e; --check-b: #333338;
+  --box1: #4cc982; --box2: #f07070; --origin: #7b96f0;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+header .grow { flex: 1; }
+button, select, label.btn { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+label.btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+main { display: grid; grid-template-columns: 260px 1fr; height: calc(100% - 53px); }
+nav { border-right: 1px solid var(--border); overflow: auto; background: var(--panel); }
+nav details { border-bottom: 1px solid var(--border); }
+nav summary { padding: 8px 12px; cursor: pointer; font-weight: 600; display: flex; justify-content: space-between; }
+nav summary span { color: var(--muted); font-weight: 400; }
+nav ul { list-style: none; margin: 0; padding: 0 0 6px; }
+nav li { padding: 3px 12px 3px 24px; cursor: pointer; font-family: ui-monospace, monospace; font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
+nav li:hover { background: var(--sel); }
+nav li.active { background: var(--sel); color: var(--accent); }
+nav li span { color: var(--muted); }
+#view { overflow: auto; padding: 16px; }
+.empty { color: var(--muted); max-width: 560px; margin: 40px auto; }
+.empty code, .meta code { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+.meta { color: var(--muted); margin: 0 0 12px; }
+.grid { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.tile { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
+.tile.anim { width: 172px; cursor: pointer; align-items: center; }
+.tile.anim.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.tile.anim .stage { width: 154px; height: 154px; display: grid; place-items: center; }
+canvas.px { image-rendering: pixelated; max-width: 100%;
+  background: repeating-conic-gradient(var(--check-a) 0 25%, var(--check-b) 0 50%) 0 0 / 12px 12px; }
+.tile canvas.px { cursor: pointer; }
+.tile small { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; text-align: center; overflow-wrap: anywhere; }
+pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow: auto; font-size: 12px; }
+audio { width: min(520px, 100%); }
+h2 { font-size: 15px; margin: 16px 0 8px; }
+.player { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 16px; display: grid; gap: 10px; }
+.player .canvas-wrap { overflow: auto; max-height: 60vh; display: flex; justify-content: center; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+.controls input[type=range] { width: 120px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.frameinfo { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+.tablewrap { overflow: auto; max-height: 70vh; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); margin-bottom: 8px; }
+table.data { border-collapse: collapse; font-size: 12px; }
+table.data th, table.data td { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 4px 6px; vertical-align: top; text-align: left; }
+table.data th { position: sticky; top: 0; background: var(--panel); z-index: 1; font-weight: 600; }
+table.data th small, table.data td small { display: block; color: var(--muted); font-weight: 400; font-family: ui-monospace, monospace; font-size: 10px; }
+table.data td.num { font-family: ui-monospace, monospace; color: var(--muted); text-align: right; }
+table.data td.txt { min-width: 120px; max-width: 360px; }
+table.data td.img canvas { display: block; }
+ol.strings { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 12px 12px 48px; margin: 0 0 12px; }
+ol.strings li { padding: 2px 0; }
+ol.strings small { color: var(--muted); font-family: ui-monospace, monospace; font-size: 10px; margin-right: 6px; }
+details > summary { cursor: pointer; color: var(--muted); }
+.palrow { margin-bottom: 10px; }
+.script { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.sl { padding: 2px 0; font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sl small { color: var(--muted); display: inline-block; min-width: 3em; }
+.sl-func { margin-top: 10px; font-weight: 600; color: var(--accent); }
+.sl-label, .sl-include { color: var(--muted); }
+.sl-call { color: var(--text); }
+.sl-op, .sl-raw { color: var(--muted); }
+.sl-dialog { font-family: inherit; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.sl-dialog b { margin-right: 4px; }
+.palrow small { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 1px; margin-top: 3px; }
+.swatches i { width: 14px; height: 14px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(127,127,127,.25); }
+.tc-y { color: #a06d00; } .tc-o { color: #c25a00; } .tc-g { color: #1e8a3c; } .tc-r { color: #c62828; }
+.tc-b { color: #2457c5; } .tc-w { color: var(--muted); } .tc-p { color: #8e3bbf; } .tc-s { color: #00838f; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tc-y { color: #f2c94c; } :root:not([data-theme="light"]) .tc-o { color: #ffa25c; } :root:not([data-theme="light"]) .tc-g { color: #6fdc8c; } :root:not([data-theme="light"]) .tc-r { color: #ff7b7b; } :root:not([data-theme="light"]) .tc-b { color: #8fb3ff; } :root:not([data-theme="light"]) .tc-p { color: #d59bff; } :root:not([data-theme="light"]) .tc-s { color: #6fe0ea; } }
+:root[data-theme="dark"] .tc-y { color: #f2c94c; } :root[data-theme="dark"] .tc-o { color: #ffa25c; } :root[data-theme="dark"] .tc-g { color: #6fdc8c; } :root[data-theme="dark"] .tc-r { color: #ff7b7b; } :root[data-theme="dark"] .tc-b { color: #8fb3ff; } :root[data-theme="dark"] .tc-p { color: #d59bff; } :root[data-theme="dark"] .tc-s { color: #6fe0ea; }
+@media (max-width: 720px) {
+  main { grid-template-columns: 1fr; grid-template-rows: 40% 60%; }
+  nav { border-right: 0; border-bottom: 1px solid var(--border); }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Asset Browser</h1>
+  <label class="btn primary">Open assets folder
+    <input id="pick" type="file" webkitdirectory directory multiple hidden>
+  </label>
+  <select id="set" hidden></select>
+  <span class="grow"></span>
+  <label>Zoom
+    <select id="zoom"><option>1</option><option selected>2</option><option>3</option><option>4</option></select>
+  </label>
+</header>
+<main>
+  <nav id="nav"></nav>
+  <section id="view">
+    <div class="empty">
+      <p>Open the game's <code>assets</code> folder (for example <code>app/src/main/assets</code>), or drag it onto this page.</p>
+      <p>Everything is decoded locally in your browser. Nothing is uploaded.</p>
+      <p>Images (<code>I</code>), animations (<code>A</code>), data tables (<code>T</code>: items, skills, quests, tips…), object definitions (<code>O</code>), maps (<code>M</code>), palettes (<code>P</code>) and fonts (<code>F</code>) are decoded. Scripts (<code>S</code>) show their dialogue and commands; UI (<code>U</code>) shows its text. Music (<code>B</code>) and sound effects (<code>W</code>) play. Other folders use formats that are not decoded yet and are shown as hex and text.</p>
+    </div>
+  </section>
+</main>
+<script>
+"use strict";
+const CATEGORIES = {
+  A: "Animations", I: "Images", T: "Data tables", O: "Objects", S: "Scripts", B: "Music", W: "Sound effects",
+  M: "Maps", R: "Map properties", U: "UI", F: "Fonts", P: "Palettes", V: "V data",
+};
+const state = { sets: {}, set: null, file: null };
+const cache = { buf: new Map(), idx: new Map(), img: new Map() };
+const $ = (id) => document.getElementById(id);
+const decoderKR = (() => { try { return new TextDecoder("euc-kr"); } catch { return new TextDecoder("latin1"); } })();
+function fmtSize(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB"; }
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+
+// ---- Resource files and indexes ------------------------------------------
+// Each folder has an index Idx<letter>: u8 format, u8 compressed, int32 fileCount,
+// fileCount sizes, then one entry per resource: file number, offset, size.
+// Resource IDs are 1-based positions in that entry list. Data files are named
+// <letter><file number><letter>.
+function entry(set, letter, name) { return (state.sets[set][letter] || []).find((e) => e.name === name); }
+function getBuf(set, letter, name) {
+  const key = `${set}/${letter}/${name}`;
+  if (!cache.buf.has(key)) {
+    const e = entry(set, letter, name);
+    cache.buf.set(key, e ? e.file.arrayBuffer().then((b) => new Uint8Array(b)) : Promise.resolve(null));
+  }
+  return cache.buf.get(key);
+}
+function getIndex(set, letter, suffix = "") {
+  const key = `${set}/${letter}${suffix}`;
+  if (!cache.idx.has(key)) cache.idx.set(key, getBuf(set, letter, "Idx" + letter + suffix).then((u8) => {
+    if (!u8) return null;
+    const d = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    const wide = u8[0] === 1, n = d.getInt32(2, true), ents = [];
+    const start = wide ? 6 + 4 * n : 6 + 2 * n, size = wide ? 12 : 8;
+    for (let p = start; p + size <= u8.length; p += size) {
+      ents.push(wide ? { file: d.getInt32(p, true), off: d.getUint32(p + 4, true), size: d.getUint32(p + 8, true) }
+                     : { file: d.getInt32(p, true), off: d.getUint16(p + 4, true), size: d.getUint16(p + 6, true) });
+    }
+    return { compressed: u8[1] !== 0, ents };
+  }));
+  return cache.idx.get(key);
+}
+async function getResource(set, letter, id, suffix = "") {
+  const idx = await getIndex(set, letter, suffix);
+  const e = idx && idx.ents[id - 1];
+  if (!e) return null;
+  const u8 = await getBuf(set, letter, `${letter}${e.file}${letter}${suffix}`);
+  return u8 ? u8.subarray(e.off, e.off + e.size) : null;
+}
+// IDs of the resources stored in one data file, in file order.
+async function idsInFile(set, letter, fileNo, suffix = "") {
+  const idx = await getIndex(set, letter, suffix), out = [];
+  if (idx) idx.ents.forEach((e, i) => { if (e.file === fileNo) out.push({ id: i + 1, off: e.off }); });
+  return out.sort((a, b) => a.off - b.off);
+}
+// Data files are <letter><number><letter>, plus a language suffix for translated
+// folders: C, E, F, G, J, S (no suffix is Korean).
+const LANGUAGES = { "": "Korean", C: "Chinese", E: "English", F: "French", G: "German", J: "Japanese", S: "Spanish" };
+function parseName(letter, name) {
+  const m = name.match(new RegExp(`^${letter}(\\d+)${letter}([A-Z]?)$`));
+  return m ? { no: +m[1], suffix: m[2] } : null;
+}
+
+// ---- Image format ---------------------------------------------------------
+// Each image: int16 width, int16 height, u8 flags, u8 paletteCount (6-byte header;
+// 14 bytes if flags & 0x80, with width/height at offsets 10/12). Then the palette
+// (RGB565, or RGB888 if flags & 0x40), the pixels (8-bit indices if flags & 0x10,
+// RGB565 if flags & 0x20) and, if flags & 0x02, one alpha byte per pixel.
+// Without an alpha channel, palette index 0 is transparent (as the game draws it).
+function rgb565(v) { return [((v >> 11) & 31) * 255 / 31 | 0, ((v >> 5) & 63) * 255 / 63 | 0, (v & 31) * 255 / 31 | 0]; }
+function decodeImageAt(u8, off, remap) {
+  const d = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  if (off + 6 > u8.length) return null;
+  let w = d.getInt16(off, true), h = d.getInt16(off + 2, true);
+  const fl = u8[off + 4], pc = u8[off + 5];
+  let hdr = 6;
+  if (fl & 0x80) { hdr = 14; w = d.getInt16(off + 10, true); h = d.getInt16(off + 12, true); }
+  const ps = (fl & 0x40) ? 3 : 2, pm = (fl & 0x10) ? 1 : (fl & 0x20) ? 2 : 0, n = w * h;
+  const end = off + hdr + pc * ps + pm * n + ((fl & 0x02) ? n : 0);
+  if (w <= 0 || h <= 0 || w > 4096 || h > 4096 || pm === 0 || end > u8.length) return null;
+  let p = off + hdr;
+  const pal = [];
+  for (let i = 0; i < pc; i++) {
+    if (ps === 3) { pal.push([u8[p + 3 * i], u8[p + 3 * i + 1], u8[p + 3 * i + 2]]); continue; }
+    const v = d.getUint16(p + 2 * i, true);
+    pal.push(rgb565(remap && remap.has(v) ? remap.get(v) : v));
+  }
+  p += pc * ps;
+  const rgba = new Uint8ClampedArray(n * 4), hasAlpha = !!(fl & 0x02);
+  for (let i = 0; i < n; i++) {
+    let c, a = 255;
+    if (pm === 1) { const ix = u8[p + i]; c = pal[ix] || [255, 0, 255]; if (!hasAlpha && ix === 0) a = 0; }
+    else c = rgb565(d.getUint16(p + 2 * i, true));
+    rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = a;
+  }
+  p += pm * n;
+  if (hasAlpha) for (let i = 0; i < n; i++) rgba[i * 4 + 3] = u8[p + i];
+  return { w, h, flags: fl, colors: pc, rgba, end };
+}
+function decodeImages(u8) {
+  const out = [];
+  let off = 0;
+  while (off < u8.length) {
+    const im = decodeImageAt(u8, off);
+    if (!im) { out.error = `Unrecognised data at byte ${off}`; break; }
+    out.push(im); off = im.end;
+  }
+  return out;
+}
+function toCanvas(im) {
+  const cv = document.createElement("canvas");
+  cv.width = im.w; cv.height = im.h;
+  cv.getContext("2d").putImageData(new ImageData(im.rgba, im.w, im.h), 0, 0);
+  return cv;
+}
+// swap: optional [fromPaletteId, toPaletteId]. Each image palette colour found in the
+// "from" palette is replaced by the colour at the same position in "to"
+// (II_ConvertPalette). Objects use this to recolour shared sprites.
+async function getImage(set, id, swap) {
+  const key = `${set}/${id}${swap ? "/" + swap.join(">") : ""}`;
+  if (!cache.img.has(key)) cache.img.set(key, (async () => {
+    const u8 = await getResource(set, "I", id);
+    let remap = null;
+    if (swap) {
+      const [a, b] = await Promise.all(swap.map((pid) => getPalette(set, pid)));
+      if (a && b) { remap = new Map(); a.forEach((v, i) => { if (!remap.has(v) && i < b.length) remap.set(v, b[i]); }); }
+    }
+    const im = u8 && decodeImageAt(u8, 0, remap);
+    return im ? toCanvas(im) : null;
+  })());
+  return cache.img.get(key);
+}
+// Palettes (P): int16 count, then count RGB565 colours.
+function getPalette(set, id) {
+  const key = `pal/${set}/${id}`;
+  if (!cache.img.has(key)) cache.img.set(key, getResource(set, "P", id).then((u8) => {
+    if (!u8 || u8.length < 2) return null;
+    const d = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), n = Math.min(d.getInt16(0, true), (u8.length - 2) >> 1);
+    return Array.from({ length: n }, (_, i) => d.getUint16(2 + 2 * i, true));
+  }));
+  return cache.img.get(key);
+}
+
+// ---- Animation format -----------------------------------------------------
+// From the game's IANI_Load / IFRM_Load. Each animation resource:
+//   string name (u8 length + bytes), u8 type, u32 (unused here), u8 flags,
+//   u8 imageCount + imageCount u32 image IDs (images it preloads),
+//   u8 frameCount, frames..., then if flags & 0x20 one u16 sound reference per frame.
+// Each frame: u8 layerCount, layers..., u8 extra ticks, [u16 if flags & 0x80],
+//   [u16 if flags & 0x40], u8 count + boxes (4 x int16: x1 y1 x2 y2), u8 count + boxes.
+// Each layer: int16 x, int16 y, [int16 w, int16 h if flags & 0x10],
+//   [u8 alpha if flags & 0x08], [u8 orientation if flags & 0x04],
+//   [u8 blend mode if flags & 0x02], u32 image ID.
+// A frame lasts (extra + 1) ticks; the game's tick is 40 ms (25/second), from the frame
+// timer set in IGM_Init and read by TimerCallback.
+function parseAnimation(u8) {
+  const d = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let p = 0;
+  const b = () => u8[p++], i16 = () => { const v = d.getInt16(p, true); p += 2; return v; };
+  const u16 = () => { const v = d.getUint16(p, true); p += 2; return v; }, u32 = () => { const v = d.getUint32(p, true); p += 4; return v; };
+  const nl = b(), name = decoderKR.decode(u8.subarray(p, p + nl)).replace(/\0.*$/s, ""); p += nl;
+  const type = b(); u32(); const fl = b();
+  const images = []; for (let n = b(); n > 0; n--) images.push(u32());
+  const frames = [];
+  for (let nf = b(); nf > 0; nf--) {
+    const layers = [];
+    for (let n = b(); n > 0; n--) {
+      const L = { x: i16(), y: i16(), w: 0, h: 0, alpha: 255, orient: 0, blend: 0 };
+      if (fl & 0x10) { L.w = i16(); L.h = i16(); }
+      if (fl & 0x08) L.alpha = b();
+      if (fl & 0x04) L.orient = b();
+      if (fl & 0x02) L.blend = b();
+      L.img = u32();
+      layers.push(L);
+    }
+    const f = { layers, extra: b(), boxes1: [], boxes2: [] };
+    if (fl & 0x80) f.v80 = u16();
+    if (fl & 0x40) f.v40 = u16();
+    for (let n = b(); n > 0; n--) f.boxes1.push([i16(), i16(), i16(), i16()]);
+    for (let n = b(); n > 0; n--) f.boxes2.push([i16(), i16(), i16(), i16()]);
+    frames.push(f);
+  }
+  const sounds = (fl & 0x20) ? frames.map(() => u16()) : null;
+  return { name, type, flags: fl, images, frames, sounds, exact: p === u8.length };
+}
+const ticksOf = (f) => (f.extra < 150 ? f.extra + 1 : 1);
+
+// ---- Data tables (T) ----------------------------------------------------------
+// From IGD_Load / IFS_GTableDeCode. A table resource holds two copies of the same
+// data (int32 length + bytes each). Each copy is a 4-byte seed, then text that is
+// RC4-encrypted and base64-encoded, then one trailing byte. The RC4 key is the
+// decimal string of a 32-bit value built from the seed. The game's RC4 swaps with
+// XOR, which zeroes a byte when both indexes match; this reproduces that.
+// Decoded table: u8 rows, u8 columns, column types, row offsets (int32), then cells.
+function rc4Game(key, data) {
+  const S = new Uint8Array(256), K = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) { S[i] = i; K[i] = key[i % key.length]; }
+  const xs = (a, b) => { S[a] ^= S[b]; S[b] ^= S[a]; S[a] ^= S[b]; };
+  for (let i = 0, j = 0; i < 256; i++) { j = (K[i] + S[i] + j) & 255; xs(i, j); }
+  const out = new Uint8Array(data.length);
+  for (let n = 0, i = 0, j = 0; n < data.length; n++) {
+    i = (i + 1) & 255; j = (S[i] + j) & 255; xs(i, j);
+    out[n] = data[n] ^ S[(S[i] + S[j]) & 255];
+  }
+  return out;
+}
+function base64Bytes(u8) {
+  const s = String.fromCharCode(...u8.filter((c) => c > 32)).replace(/[^A-Za-z0-9+/]/g, "");
+  const bin = atob(s + "===".slice((s.length + 3) % 4));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+function decodeTableCopy(u8) {
+  const seed = new DataView(u8.buffer, u8.byteOffset, 4).getUint32(0, true);
+  const k = (((0x63 ^ (seed >>> 24 ? 1 : 0)) << 24) | ((0x6f ^ (seed >>> 16 ? 1 : 0)) << 16) | ((0x72 ^ (seed >>> 8 ? 1 : 0)) << 8) | (seed ? 0x64 : 0x65)) | 0;
+  const key = new TextEncoder().encode(String(k));
+  return base64Bytes(rc4Game(key, u8.subarray(4, u8.length - 1)));
+}
+const CELL_TYPES = { 0: "bool", 1: "u8", 2: "i8", 3: "i16", 4: "i32", 5: "u8", 6: "u16", 7: "u32", 10: "text", 11: "text", 12: "palette", 13: "image", 14: "list", 15: "list", 16: "u16", 17: "animations" };
+const utf8 = new TextDecoder("utf-8");
+function parseTable(raw) {
+  const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  const n1 = dv.getInt32(0, true), n2 = dv.getInt32(4 + n1, true);
+  const a = decodeTableCopy(raw.subarray(4, 4 + n1)), b = decodeTableCopy(raw.subarray(8 + n1, 8 + n1 + n2));
+  const same = a.length === b.length && a.every((v, i) => v === b[i]);
+  const d = new DataView(a.buffer), rows = a[0], cols = a[1], types = Array.from(a.subarray(2, 2 + cols));
+  const out = { types, rows: [], verified: same, truncated: false };
+  for (let r = 0; r < rows; r++) {
+    const ro = 2 + cols + 4 * r;
+    if (ro + 4 > a.length) { out.truncated = true; break; }
+    let p = d.getInt32(ro, true);
+    const row = [];
+    try {
+      for (const t of types) {
+        let v;
+        if (t === 0 || t === 1 || t === 5) v = a[p++];
+        else if (t === 2) v = d.getInt8(p++);
+        else if (t === 3) { v = d.getInt16(p, true); p += 2; }
+        else if (t === 4) { v = d.getInt32(p, true); p += 4; }
+        else if (t === 6 || t === 12 || t === 16) { v = d.getUint16(p, true); p += 2; }
+        else if (t === 7 || t === 13) { v = d.getUint32(p, true); p += 4; }
+        else if (t === 10) { const n = a[p++]; v = utf8.decode(a.subarray(p, p + n)).replace(/\0+$/, ""); p += n; }
+        else if (t === 11 || t === 14 || t === 15) { const n = d.getUint16(p, true); p += 2; v = utf8.decode(a.subarray(p, p + n)).replace(/\0+$/, ""); p += n; }
+        else if (t === 17) { p += 2; const n = d.getInt16(p, true); p += 2; v = []; for (let i = 0; i < n; i++, p += 4) v.push([d.getUint16(p, true), d.getUint16(p + 2, true)]); }
+        else throw new Error("unknown cell type " + t);
+        row.push(v);
+      }
+    } catch { out.truncated = true; break; }
+    out.rows.push(row);
+  }
+  return out;
+}
+// ---- Animations by ID, object definitions (O) and sounds ------------------------
+async function getAnimation(set, id, base = 0, swap = null) {
+  const key = `ani/${set}/${id}/${base}${swap ? "/" + swap.join(">") : ""}`;
+  if (!cache.img.has(key)) cache.img.set(key, getResource(set, "A", id).then((u8) => u8 ? prepareAnimation(set, parseAnimation(u8), base, swap) : null).catch(() => null));
+  return cache.img.get(key);
+}
+// Object definitions use the same encrypted table format as T. An object ID is
+// table × 256 + row (IGO_Load). Columns 0-10 are fixed: kind, u8, u16, u8,
+// a box (4 × i8: x1 y1 x2 y2), two palette IDs, animation list of (animation ID, image
+// offset); later columns depend on the kind (monsters have a name in column 11).
+function getObjectTable(set, tid, suffix) {
+  const key = `obj/${set}/${tid}/${suffix}`;
+  if (!cache.img.has(key)) cache.img.set(key, getResource(set, "O", tid, suffix).then((u8) => u8 ? parseTable(u8) : null).catch(() => null));
+  return cache.img.get(key);
+}
+async function getObjectDef(set, oid, suffix = "") {
+  const t = await getObjectTable(set, oid >> 8, suffix) || await getObjectTable(set, oid >> 8, "");
+  const row = t && t.rows[oid & 255];
+  if (!row) return null;
+  return { id: oid, kind: row[0], box: row.slice(4, 8), swap: row[8] && row[9] ? [row[8], row[9]] : null, anims: row[10] || [], name: typeof row[11] === "string" ? row[11] : "" };
+}
+// A frame's sound reference is a data-table reference (table × 256 + row); column 0 of
+// that row is a sound-effect resource ID in W (IRM_GetWave).
+async function getSound(set, ref) {
+  const key = `snd/${set}/${ref}`;
+  if (!cache.img.has(key)) cache.img.set(key, (async () => {
+    const t = parseTable(await getResource(set, "T", ref >> 8));
+    const row = t.rows[ref & 255], idx = await getIndex(set, "W");
+    const e = row && idx && idx.ents[row[0] - 1];
+    const f = e && (entry(set, "W", `W${e.file}W.ogg`) || entry(set, "W", `W${e.file}W`));
+    return f ? URL.createObjectURL(f.file) : null;
+  })().catch(() => null));
+  return cache.img.get(key);
+}
+
+// ---- Scripts (S) ------------------------------------------------------------------
+// From ISRT_Load and ISOP_NewScriptOp. int32 item count, int32, then items:
+//   0 label (u16-length text), 1 function start (u8 id, int16), 0x19 include (u16 script ID),
+//   2 PUSHVAR u8, 3 PUSH (u8 scope, int16 index), 4 PUSHCONST (u8 type: 0 bool u8,
+//   3 int32, 7 text), 20 JUMPFALSE int32, 21 JUMP int32, 22 SETFLAG u8, 24 CALL u8,
+//   23 SAVESSP, 5-19 SET ADD SUB MUL DIV NEG AND OR NOT EQ GT LT GTEQ LTEQ NEQ (no
+//   parameters). Any other op (only 26 occurs, once per function) has no parameters.
+// CALL n runs native function n if the game registers one (IGL_InitFunTable, names below,
+// resolved from the binary), otherwise the script function with id n (from this script or
+// an included one). SAVESSP marks where a call's arguments start.
+// Generated by tools/ghidra/script_natives.py. Names joined with "/" share one address.
+const SCRIPT_NATIVES = {0: "IGM_GetDisplayWidth", 1: "IGM_GetDisplayHeight", 2: "IVO_IsValidObject", 3: "IGM_EnableGObject", 4: "IGM_SuspendGObject", 5: "IGM_ResumeGObject", 6: "IGM_IsKeyPressed", 7: "IGM_AddSceneQueue", 8: "ISND_PlayBGM", 9: "ISND_StopBGM", 10: "IGM_GetGObjectCount", 11: "IGM_InsertGObject", 12: "IGM_LoadGObject", 13: "IGM_GetGObject", 14: "IGM_GetGObjectAt", 15: "IGM_GetGObjectIndex", 16: "IGM_GetGObjectResId", 17: "IGM_DeleteGObject", 18: "IGM_GetPlayerGObjectIndex", 19: "IGM_HideGObject", 20: "IGM_LoadStockGObject", 21: "IGM_GetStockGObject", 22: "IGM_DeleteStockGObject", 23: "IGM_GetGObjectDistance", 24: "IGM_GetGObjectInDistance", 25: "IGM_GetGObjectMapTileNum", 26: "IGM_LoadUIForm", 27: "IGM_GetUIForm", 28: "IGM_DeleteUIForm", 29: "IGM_SetKeyFocusUIForm", 30: "IGM_MoveUIFormMap", 31: "IGM_GetRandomLimit", 32: "IGM_FrameSleep", 33: "IGM_IsFrameSleepPlaying", 34: "IGO_GetData", 35: "IGO_SetData", 36: "IGO_GetMapPos", 37: "IGO_SetMapPos", 38: "IGO_GetGProperty", 39: "IGO_SetGProperty", 40: "IGO_AddAnimation", 41: "IGO_AddMove", 42: "IGO_AddTransform", 43: "IGO_Play", 44: "IGO_IsAniPlaying", 45: "IGO_IsMovePlaying", 46: "IGO_IsTransformPlaying", 47: "IGO_ClearAnimation", 48: "IGO_GetCurAnimationName", 49: "IUIF_GetGProperty", 50: "IUIF_SetGProperty", 51: "IUIF_Show", 52: "IUIF_GetVisible", 53: "IUIF_SetVisible", 54: "IUIF_Update", 58: "AcqItem", 60: "DropItem", 63: "AddCostumeAnimation", 64: "WVC_SetFitGObject", 65: "SetPlayerData", 66: "GenBattleMonster", 67: "GetPlayerData", 68: "ShowMessage", 72: "UpdateBtScore", 73: "GetGObjectByMapID", 74: "WVC_Move", 75: "WVC_IsMovePlaying", 77: "InsertPlayerGObject", 78: "NPC_CreateUIForm", 79: "SetMapLock", 80: "GenerateMonster", 81: "SetTarget", 82: "ClearMove", 83: "RequireCompleteQuest", 84: "AddGPropertyObjArray", 87: "SetMonsterData", 88: "GetMonsterData", 89: "AttackToTarget", 90: "MoveMonster", 91: "GetCurFrameCount", 92: "SetDropItemPos", 93: "SetAttackData", 94: "GetGroupNumCount", 95: "AddAnimationEx", 96: "UpdateDialogProp", 97: "DeleteGObjectsByGroupNum", 98: "DeleteDialogFace", 99: "IsEmptySceneQueue", 101: "WVC_FadeOut", 102: "WVC_IsPlayingFade", 103: "EndScene", 104: "WVC_FadeIn", 105: "ConvertToNormalGObj", 106: "ConvertToBoundaryGObj", 107: "GetCurMapResId", 109: "IsIngQuest", 110: "DeleteGObject", 113: "GetCountItem", 115: "GetGPropertyObjArray", 117: "WVC_OffsetMove", 118: "RequestQuest", 119: "TimeQuestCheck", 120: "ShowChoiceMsg", 121: "ShowNMain", 122: "IsCompleteQuest", 124: "WVC_ShowMsg", 125: "DisplayZOrderGObject", 126: "AddPlayerAnimationList", 127: "ShowPrologCaption", 128: "NPC_ClearQuest", 129: "MonsterDropItem", 130: "IsRecognizeGObject", 131: "AddQuest", 132: "CompleteQuest", 133: "ClearQuest", 134: "MoveToTarget", 135: "ShowEffectDeath", 136: "DeletePlayerAnimationList", 137: "AutoSave", 138: "GenerateDropItem", 139: "AddPlayerAnimationList2", 140: "WVC_MoveStartUIForm", 141: "SetPointerFocus"};
+const OP_NAMES = { 2: "PUSHVAR", 3: "PUSH", 4: "PUSHCONST", 5: "SET", 6: "ADD", 7: "SUB", 8: "MUL", 9: "DIV", 10: "NEG", 11: "AND", 12: "OR", 13: "NOT", 14: "EQ", 15: "GT", 16: "LT", 17: "GTEQ", 18: "LTEQ", 19: "NEQ", 20: "JUMPFALSE", 21: "JUMP", 22: "SETFLAG", 23: "SAVESSP", 24: "CALL", 26: "END" };
+function parseScript(u8) {
+  const r = makeReader(u8), d = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const n = d.getInt32(0, true); r.p = 8;
+  const items = [];
+  for (let k = 0; k < n; k++) {
+    const op = r.u8();
+    if (op === 0) items.push({ op, text: r.lstr() });
+    else if (op === 1) items.push({ op, id: r.u8(), v: r.i16() });
+    else if (op === 0x19) items.push({ op, script: r.u16() });
+    else if (op === 2 || op === 22 || op === 24) items.push({ op, v: r.u8() });
+    else if (op === 3) items.push({ op, scope: r.u8() & 3, v: r.i16() });
+    else if (op === 4) {
+      const t = r.u8();
+      items.push({ op, t, v: t === 0 ? !!r.u8() : t === 3 ? (r.p += 4, d.getInt32(r.p - 4, true)) : t === 7 ? r.str() : null });
+    } else if (op === 20 || op === 21) { items.push({ op, v: d.getInt32(r.p, true) }); r.p += 4; }
+    else items.push({ op });
+  }
+  return { items, exact: r.end() };
+}
+// Turns a function's ops into readable lines. Values pushed after SAVESSP become the next
+// CALL's arguments; nested calls become arguments of the outer call.
+function scriptLines(items, funcs) {
+  const lines = [];
+  let frames = [], stack = [], step = 0, inFunc = false;
+  const lit = (it) => it.t === 7 ? JSON.stringify(it.v) : String(it.v);
+  const flush = () => { if (stack.length) { lines.push({ kind: "raw", step, text: "push " + stack.join(", ") }); stack = []; } };
+  for (const it of items) {
+    if (it.op === 0) { flush(); lines.push({ kind: "label", text: it.text }); continue; }
+    if (it.op === 0x19) { flush(); lines.push({ kind: "include", text: `include script ${it.script}` }); continue; }
+    if (it.op === 1) { flush(); frames = []; step = 0; inFunc = true; lines.push({ kind: "func", text: `function ${it.id}` + (funcs && funcs.has(it.id) ? ` (${funcs.get(it.id)})` : "") }); continue; }
+    const cur = frames.length ? frames[frames.length - 1] : stack;
+    if (it.op === 3) cur.push(`${["local", "global", "self", "param"][it.scope]}${it.v}`);
+    else if (it.op === 4) cur.push(lit(it));
+    else if (it.op === 2) cur.push(`&var${it.v}`);
+    else if (it.op === 23) frames.push([]);
+    else if (it.op === 24) {
+      const args = frames.length ? frames.pop() : [];
+      const name = SCRIPT_NATIVES[it.v] || (funcs && funcs.get(it.v)) || `function ${it.v}`;
+      const call = `${name}(${args.join(", ")})`;
+      if (frames.length) frames[frames.length - 1].push(call);
+      else if (it.v === 70 && args.length >= 8) lines.push({ kind: "dialog", step, who: args[2], face: args[3], text: args[args.length - 1], call });
+      else lines.push({ kind: "call", step, text: call, native: !!SCRIPT_NATIVES[it.v] });
+    } else {
+      flush();
+      const name = OP_NAMES[it.op] || `op${it.op}`;
+      lines.push({ kind: "op", step, text: name + (it.v !== undefined && it.op !== 1 ? " " + it.v : "") });
+    }
+    step++;
+  }
+  flush();
+  return lines;
+}
+async function renderScripts(view, u8, fileNo, suffix, token) {
+  const set = state.set, ids = await idsInFile(set, "S", fileNo, suffix);
+  const funcs = new Map([[70, "dialogue"]]);
+  const scripts = [];
+  for (const { id } of ids) {
+    const sc = parseScript(await getResource(set, "S", id, suffix));
+    const lines = scriptLines(sc.items, funcs);
+    const dialog = lines.filter((l) => l.kind === "dialog" || (l.kind === "call" && /ShowMessage|ShowChoiceMsg|WVC_ShowMsg|ShowPrologCaption/.test(l.text)));
+    scripts.push({ id, sc, lines, dialog });
+  }
+  if (state.file !== token) return;
+  const nd = scripts.reduce((n, x) => n + x.dialog.length, 0);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${LANGUAGES[suffix] || suffix} · ${scripts.length} scripts in this file · ${nd} dialogue and message lines. Calls show the native function name the game registers for that number; other numbers are script functions (70 is the shared dialogue function).</p>`);
+  const bar = document.createElement("div");
+  bar.className = "controls";
+  bar.innerHTML = `<label><input type="radio" name="sv" value="d" checked> Dialogue</label><label><input type="radio" name="sv" value="f"> Full scripts</label><label><input type="radio" name="sv" value="t"> Text strings</label>`;
+  view.appendChild(bar);
+  const host = document.createElement("div");
+  view.appendChild(host);
+  const strip = (x) => (x && x[0] === '"' ? JSON.parse(x) : x || "");
+  const show = () => {
+    const mode = bar.querySelector("input:checked").value;
+    host.innerHTML = "";
+    if (mode === "t") { renderText(host, u8, suffix); return; }
+    for (const { id, sc, lines, dialog } of scripts) {
+      const list = mode === "d" ? dialog : lines;
+      if (mode === "d" && !list.length) continue;
+      host.insertAdjacentHTML("beforeend", `<h2>Script ${id} <span class="meta">· ${sc.items.length} items${sc.exact ? "" : " · not fully parsed"}</span></h2>`);
+      const box = document.createElement("div");
+      box.className = "script";
+      for (const l of list) {
+        const div = document.createElement("div");
+        div.className = "sl sl-" + l.kind;
+        if (l.kind === "dialog") div.innerHTML = `<b>${esc(strip(l.who))}</b> <small>${esc(strip(l.face))}</small> ${richText(strip(l.text))}`;
+        else if (l.kind === "call" && mode === "d") div.innerHTML = richText(l.text.replace(/"/g, ""));
+        else div.innerHTML = (l.step !== undefined ? `<small>${l.step}</small>` : "") + esc(l.text);
+        box.appendChild(div);
+      }
+      host.appendChild(box);
+    }
+    if (!host.children.length) host.innerHTML = `<p class="meta">No dialogue in this file.</p>`;
+  };
+  bar.onchange = show;
+  show();
+}
+
+// ---- Maps (M + R) -------------------------------------------------------------
+// From IMAP_Load, IMAP_LoadBaseMap, IML_Load and IMAP_Draw. A map ID opens the same
+// resource ID in M (tiles, layers, objects) and R (name and properties; translated).
+// R: name, u16 engine, u16 music, u8, u16 base map ID, u8 property count, properties
+//    (u8 type, name, value: u16-length text for types 11, 14, 15, else u8-length).
+//    For a base map, the long-text property values are read from M instead.
+// M: u8 cell format (1 = 16-bit cells), tile list (only for base maps and maps with
+//    no base: u8/u16 count + u32 image IDs), u16, u8 layer count, layers.
+// Layer: int16 tile w, tile h, columns, rows; if cells: cells (u8/u16, value v draws
+//    tile v-1, 0 = empty), u16 flags per cell (bit 0 mirrors the tile), u8 marker and,
+//    if 1, one more byte per cell; then u16 object count and objects: type, name,
+//    int16 x, y, u8, u8 property count + (u8 index, text) pairs.
+function makeReader(u8) {
+  const d = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const r = { p: 0, u8: () => u8[r.p++], i16: () => { const v = d.getInt16(r.p, true); r.p += 2; return v; },
+    u16: () => { const v = d.getUint16(r.p, true); r.p += 2; return v; }, u32: () => { const v = d.getUint32(r.p, true); r.p += 4; return v; },
+    str: () => { const n = u8[r.p++]; const v = utf8.decode(u8.subarray(r.p, r.p + n)).replace(/\0+$/, ""); r.p += n; return v; },
+    lstr: () => { const n = r.u16(); const v = utf8.decode(u8.subarray(r.p, r.p + n)).replace(/\0+$/, ""); r.p += n; return v; },
+    end: () => r.p === u8.length };
+  return r;
+}
+async function parseMap(set, id, suffix, asBase) {
+  const mu8 = await getResource(set, "M", id), ru8 = await getResource(set, "R", id, suffix) || await getResource(set, "R", id);
+  if (!mu8 || !ru8) return null;
+  const M = makeReader(mu8), P = makeReader(ru8);
+  const m = { id, name: P.str(), engine: P.u16(), music: P.u16(), c: P.u8(), base: P.u16(), props: [], layers: [] };
+  for (let n = P.u8(); n > 0; n--) {
+    const t = P.u8(), k = P.str();
+    const long = t === 11 || t === 14 || t === 15;
+    m.props.push([k, long ? (asBase ? M.lstr() : P.lstr()) : P.str()]);
+  }
+  const wide = M.u8() === 1;
+  if (asBase || !m.base) { const n = wide ? M.u16() : M.u8(); m.tiles = []; for (let i = 0; i < n; i++) m.tiles.push(M.u32()); }
+  M.u16();
+  for (let n = M.u8(); n > 0; n--) {
+    const L = { tw: M.i16(), th: M.i16(), cols: M.i16(), rows: M.i16(), objects: [] }, c = L.cols * L.rows;
+    if (!c) M.u8();
+    else {
+      L.cells = new Uint16Array(c); L.flags = new Uint16Array(c);
+      for (let i = 0; i < c; i++) L.cells[i] = wide ? M.u16() : M.u8();
+      for (let i = 0; i < c; i++) L.flags[i] = M.u16();
+      if (M.u8() === 1) { L.extra = new Uint8Array(c); for (let i = 0; i < c; i++) L.extra[i] = M.u8(); }
+    }
+    for (let k = M.u16(); k > 0; k--) {
+      const o = { type: M.str(), name: M.str(), x: M.i16(), y: M.i16(), c: M.u8(), props: [] };
+      for (let j = M.u8(); j > 0; j--) o.props.push([M.u8(), M.str()]);
+      L.objects.push(o);
+    }
+    m.layers.push(L);
+  }
+  m.exact = M.end() && P.end();
+  if (!asBase && m.base) m.baseMap = await parseMap(set, m.base, suffix, true);
+  m.tileList = m.tiles || (m.baseMap && m.baseMap.tiles) || [];
+  return m;
+}
+// A map object's type names a map property whose value lists object IDs with spawn
+// chances ("id:chance[:...]-id:chance..."). The first ID's default (first) animation is
+// drawn. Some kinds snap to the 18-pixel grid, as IEMain_GenMapGObject does.
+async function resolveObject(set, m, o, suffix) {
+  if (o._res !== undefined) return o._res;
+  const pv = m.props.find(([k]) => k === o.type);
+  const oid = pv ? parseInt(pv[1].split("-")[0].split(":")[0], 10) : 0;
+  const def = oid ? await getObjectDef(set, oid, suffix) : null;
+  const ani = def && def.anims.length ? await getAnimation(set, def.anims[0][0], def.anims[0][1], def.swap) : null;
+  let { x, y } = o;
+  if (def) {
+    if (def.kind === 100 || def.kind === 110) { x = Math.floor(x / 18) * 18; y = Math.floor(y / 18) * 18; }
+    else if (def.kind === 15 || (def.kind >= 20 && def.kind <= 29)) y = Math.floor(y / 18) * 18 + 4;
+  }
+  // When an object has no overlay sprite, say why — most such objects are meant to be
+  // invisible, not failures: triggers, spawn markers, or terrain drawn by the tilemap.
+  let reason = null;
+  if (!ani) {
+    if (!o.type) reason = "position marker";
+    else if (!pv) reason = "no spawn entry (dummy/placeholder)";
+    else if (!def) reason = "object not found";
+    else if (def.kind === 27) reason = "action point (invisible trigger)";
+    else if (def.kind === 15) reason = "breakable terrain (shown by the tile layer)";
+    else reason = "no sprite in object definition";
+  }
+  return (o._res = { oid, def, ani, x, y, reason });
+}
+function drawAnimationAt(ctx, ani, fi, x, y, z) {
+  const f = ani.frames[fi];
+  if (!f) return;
+  for (const L of f.layers) {
+    const im = ani.imgs.get(L.img);
+    if (!im) continue;
+    const w = L.w || im.width, h = L.h || im.height;
+    ctx.setTransform(z, 0, 0, z, (x + L.x) * z, (y + L.y) * z);
+    ctx.globalAlpha = L.alpha / 255;
+    orientTransform(ctx, L.orient, w, h);
+    ctx.drawImage(im, 0, 0, w, h);
+  }
+  ctx.globalAlpha = 1;
+}
+async function drawMap(cv, set, m, opt) {
+  const layers = [...(opt.background && m.baseMap ? m.baseMap.layers.map((L) => ({ L, bg: true })) : []), ...m.layers.map((L) => ({ L, bg: false }))];
+  const fg = m.layers.filter((L) => L.cells);
+  const W = Math.max(1, ...(fg.length ? fg : layers.map((x) => x.L)).map((L) => L.cols * L.tw));
+  const H = Math.max(1, ...(fg.length ? fg : layers.map((x) => x.L)).map((L) => L.rows * L.th));
+  const z = opt.zoom || 1;
+  cv.width = W * z; cv.height = H * z;
+  const ctx = cv.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  ctx.setTransform(z, 0, 0, z, 0, 0);
+  const tiles = await Promise.all(m.tileList.map((id) => getImage(set, id)));
+  for (const { L, bg } of layers) {
+    if (!L.cells) continue;
+    ctx.globalAlpha = bg ? 0.75 : 1;
+    for (let r = 0; r < L.rows; r++) for (let c = 0; c < L.cols; c++) {
+      const i = r * L.cols + c, v = L.cells[i];
+      const t = v && tiles[v - 1];
+      if (!t) continue;
+      const x = c * L.tw, y = r * L.th;
+      if (L.flags[i] & 1) { ctx.save(); ctx.transform(-1, 0, 0, 1, 2 * x + t.width, 0); ctx.drawImage(t, x, y); ctx.restore(); }
+      else ctx.drawImage(t, x, y);
+    }
+  }
+  ctx.globalAlpha = 1;
+  if (opt.sprites) {
+    for (const L of m.layers) for (const o of L.objects) {
+      const r = await resolveObject(set, m, o, opt.suffix);
+      if (r.ani) drawAnimationAt(ctx, r.ani, 0, r.x, r.y, z);
+    }
+    ctx.setTransform(z, 0, 0, z, 0, 0);
+  }
+  if (opt.flags) for (const L of m.layers) {
+    if (!L.cells) continue;
+    for (let i = 0; i < L.cells.length; i++) {
+      const f = L.flags[i] & ~1;
+      if (!f) continue;
+      ctx.fillStyle = `hsla(${(f * 47) % 360}, 80%, 50%, 0.35)`;
+      ctx.fillRect((i % L.cols) * L.tw, Math.floor(i / L.cols) * L.th, L.tw, L.th);
+    }
+  }
+  if (opt.objects) {
+    const css = getComputedStyle(document.documentElement);
+    ctx.font = "9px system-ui, sans-serif";
+    for (const L of m.layers) for (const o of L.objects) {
+      ctx.fillStyle = css.getPropertyValue("--box2"); ctx.beginPath(); ctx.arc(o.x, o.y, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(0,0,0,0.65)"; const label = o.name || o.type, w = ctx.measureText(label).width;
+      ctx.fillRect(o.x + 4, o.y - 6, w + 4, 11);
+      ctx.fillStyle = "#fff"; ctx.fillText(label, o.x + 6, o.y + 2);
+    }
+  }
+}
+
+// In-game text markup: "|" is a line break, "&<letter>" starts a colour, "&0" resets.
+function richText(s) {
+  let html = "", open = false;
+  for (const part of s.split(/(&[0-9a-z])/)) {
+    if (/^&[0-9a-z]$/.test(part)) {
+      if (open) { html += "</span>"; open = false; }
+      if (part !== "&0") { html += `<span class="tc tc-${part[1]}">`; open = true; }
+    } else html += esc(part).replace(/\|/g, "<br>");
+  }
+  return html + (open ? "</span>" : "");
+}
+
+// Orientation codes 0-7, from the game's software renderer. Each maps the image's
+// own (w, h) box into the drawn box.
+function orientTransform(ctx, o, w, h) {
+  switch (o) {
+    case 1: ctx.transform(-1, 0, 0, 1, w, 0); break;   // flip horizontally
+    case 2: ctx.transform(1, 0, 0, -1, 0, h); break;   // flip vertically
+    case 3: ctx.transform(0, 1, -1, 0, h, 0); break;   // rotate 90° clockwise
+    case 4: ctx.transform(0, -1, 1, 0, 0, w); break;   // rotate 90° counter-clockwise
+    case 5: ctx.transform(0, -1, -1, 0, h, w); break;  // anti-transpose
+    case 6: ctx.transform(0, 1, 1, 0, 0, 0); break;    // transpose
+    case 7: ctx.transform(-1, 0, 0, -1, w, h); break;  // rotate 180°
+  }
+}
+const rotates = (o) => o >= 3 && o <= 6;
+// base: an offset added to every image ID. Object definitions pair an animation with an
+// offset (IRM_GetAnimation2 → IANI_Load), so one animation can show different images.
+async function prepareAnimation(set, ani, base = 0, swap = null) {
+  const ids = new Set();
+  ani.frames.forEach((f) => f.layers.forEach((L) => ids.add(L.img)));
+  const imgs = new Map();
+  await Promise.all([...ids].map(async (id) => imgs.set(id, await getImage(set, id + base, swap))));
+  ani.imgs = imgs;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const grow = (a, b, c, d) => { x0 = Math.min(x0, a); y0 = Math.min(y0, b); x1 = Math.max(x1, c); y1 = Math.max(y1, d); };
+  for (const f of ani.frames) {
+    for (const L of f.layers) {
+      const im = imgs.get(L.img);
+      if (!im) continue;
+      let w = L.w || im.width, h = L.h || im.height;
+      if (rotates(L.orient)) [w, h] = [h, w];
+      grow(L.x, L.y, L.x + w, L.y + h);
+    }
+    for (const bx of [...f.boxes1, ...f.boxes2]) grow(bx[0], bx[1], bx[2] + 1, bx[3] + 1);
+  }
+  if (x0 === Infinity) { x0 = y0 = -8; x1 = y1 = 8; }
+  grow(-2, -2, 2, 2);
+  ani.bounds = { x0: Math.floor(x0) - 2, y0: Math.floor(y0) - 2, w: Math.ceil(x1 - x0) + 4, h: Math.ceil(y1 - y0) + 4 };
+  ani.totalTicks = ani.frames.reduce((s, f) => s + ticksOf(f), 0) || 1;
+  return ani;
+}
+function unionBounds(list) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const a of list) { const b = a.bounds; x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0); x1 = Math.max(x1, b.x0 + b.w); y1 = Math.max(y1, b.y0 + b.h); }
+  return { x0, y0, w: x1 - x0, h: y1 - y0 };
+}
+function drawFrame(ctx, ani, fi, opt = {}) {
+  const { x0, y0, w: bw } = opt.bounds || ani.bounds, f = ani.frames[fi];
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (opt.clear !== false) ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  const s = opt.scale || 1;
+  ctx.setTransform(s, 0, 0, s, 0, 0);
+  if (opt.mirror) ctx.transform(-1, 0, 0, 1, bw, 0);
+  ctx.translate(-x0, -y0);
+  ctx.imageSmoothingEnabled = false;
+  if (f) for (const L of f.layers) {
+    const im = ani.imgs.get(L.img);
+    if (!im) continue;
+    const w = L.w || im.width, h = L.h || im.height;
+    ctx.save();
+    ctx.globalAlpha = L.alpha / 255;
+    ctx.translate(L.x, L.y);
+    orientTransform(ctx, L.orient, w, h);
+    ctx.drawImage(im, 0, 0, w, h);
+    ctx.restore();
+  }
+  if (opt.boxes && f) {
+    const css = getComputedStyle(document.documentElement);
+    ctx.lineWidth = 1 / s;
+    for (const [list, color] of [[f.boxes1, css.getPropertyValue("--box1")], [f.boxes2, css.getPropertyValue("--box2")]]) {
+      ctx.strokeStyle = color; ctx.fillStyle = color;
+      for (const [a, b, c, d] of list) {
+        ctx.globalAlpha = 0.18; ctx.fillRect(a, b, c - a + 1, d - b + 1);
+        ctx.globalAlpha = 1; ctx.strokeRect(a + 0.5 / s, b + 0.5 / s, c - a + 1 - 1 / s, d - b + 1 - 1 / s);
+      }
+    }
+    ctx.strokeStyle = css.getPropertyValue("--origin"); ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(4, 0); ctx.moveTo(0, -4); ctx.lineTo(0, 4); ctx.stroke();
+  }
+}
+function frameAtTick(ani, tick) {
+  let t = tick % ani.totalTicks;
+  for (let i = 0; i < ani.frames.length; i++) { t -= ticksOf(ani.frames[i]); if (t < 0) return i; }
+  return 0;
+}
+
+// ---- Animation loop --------------------------------------------------------
+const anim = { previews: new Set(), player: null, tps: 25, last: 0, acc: 0, tick: 0 };
+function loop(now) {
+  const dt = Math.min(250, now - (anim.last || now));
+  anim.last = now;
+  anim.acc += dt;
+  const step = 1000 / anim.tps;
+  let advanced = false;
+  while (anim.acc >= step) { anim.acc -= step; anim.tick++; advanced = true; }
+  if (advanced) {
+    for (const pv of anim.previews) if (pv.visible && pv.ani.frames.length > 1) drawFrame(pv.ctx, pv.ani, frameAtTick(pv.ani, anim.tick), { scale: pv.scale });
+    const pl = anim.player;
+    if (pl && pl.playing && pl.ani.frames.length > 1) {
+      pl.tick++;
+      pl.render();
+    }
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+const observer = new IntersectionObserver((entries) => {
+  for (const e of entries) if (e.target._pv) e.target._pv.visible = e.isIntersecting;
+});
+
+// ---- Loading ----------------------------------------------------------------
+function ingest(files) {
+  const sets = {};
+  for (const f of files) {
+    const parts = (f.webkitRelativePath || f._path || f.name).split("/");
+    if (parts.length < 3) continue;
+    const [set, cat, name] = parts.slice(-3);
+    if (!CATEGORIES[cat]) continue;
+    ((sets[set] ||= {})[cat] ||= []).push({ name, file: f });
+  }
+  const names = Object.keys(sets).sort();
+  if (!names.length) { $("view").innerHTML = '<div class="empty"><p>No asset folders found. Open the folder that contains <code>Default</code> and <code>HVGA</code>.</p></div>'; return; }
+  for (const s of names) for (const c in sets[s]) sets[s][c].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  state.sets = sets;
+  cache.buf.clear(); cache.idx.clear(); cache.img.clear();
+  const sel = $("set");
+  sel.innerHTML = names.map((n) => `<option>${esc(n)}</option>`).join("");
+  sel.hidden = names.length < 2;
+  showSet(names[0]);
+}
+function showSet(name) {
+  state.set = name;
+  const cats = state.sets[name], nav = $("nav");
+  nav.innerHTML = "";
+  for (const c of Object.keys(CATEGORIES).filter((c) => cats[c])) {
+    const det = document.createElement("details");
+    det.open = c === "A";
+    det.innerHTML = `<summary>${CATEGORIES[c]} <span>${c}/ · ${cats[c].length}</span></summary>`;
+    const ul = document.createElement("ul");
+    for (const e of cats[c]) {
+      const li = document.createElement("li");
+      li.innerHTML = `${esc(e.name)}<span>${fmtSize(e.file.size)}</span>`;
+      li.onclick = () => { nav.querySelectorAll("li.active").forEach((x) => x.classList.remove("active")); li.classList.add("active"); open(c, e); };
+      ul.appendChild(li);
+    }
+    det.appendChild(ul);
+    nav.appendChild(det);
+  }
+  const first = nav.querySelector("li");
+  if (first) first.click();
+}
+
+// ---- Views ------------------------------------------------------------------
+function clearView() {
+  for (const pv of anim.previews) observer.unobserve(pv.el);
+  anim.previews.clear();
+  anim.player = null;
+}
+async function open(cat, entry) {
+  clearView();
+  const token = (state.file = { cat, entry });
+  const view = $("view");
+  view.innerHTML = `<p class="meta">${esc(state.set)}/${cat}/${esc(entry.name)} · ${fmtSize(entry.file.size)}</p>`;
+  if (/\.(ogg|mp3)$/i.test(entry.name)) {
+    const a = document.createElement("audio");
+    a.controls = true; a.src = URL.createObjectURL(entry.file);
+    view.appendChild(a);
+    return;
+  }
+  const u8 = await getBuf(state.set, cat, entry.name);
+  if (state.file !== token) return;
+  const pn = parseName(cat, entry.name), no = pn ? pn.no : null;
+  if (cat === "I" && no !== null) {
+    const imgs = decodeImages(u8);
+    if (imgs.length) {
+      const ids = await idsInFile(state.set, "I", no);
+      if (state.file !== token) return;
+      renderImages(view, imgs, entry.name, ids);
+      if (imgs.error) view.insertAdjacentHTML("beforeend", `<p class="meta">${esc(imgs.error)}</p>`);
+      return;
+    }
+  }
+  if (cat === "A" && no !== null) { await renderAnimations(view, no, token); return; }
+  if ((cat === "T" || cat === "O") && no !== null) { await renderTables(view, no, pn.suffix, token, cat); return; }
+  if (cat === "M" && no !== null) { await renderMaps(view, no, token); return; }
+  if (cat === "P" && no !== null) { await renderPalettes(view, no, token); return; }
+  if (cat === "F" && no !== null) { await renderFonts(view, no, token); return; }
+  if (cat === "S" && no !== null) { await renderScripts(view, u8, no, pn.suffix, token); return; }
+  if (cat === "U" && no !== null) { renderText(view, u8, pn.suffix); return; }
+  renderHex(view, u8);
+}
+async function renderTables(view, fileNo, suffix, token, letter = "T") {
+  const set = state.set, ids = await idsInFile(set, letter, fileNo, suffix);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${letter === "O" ? "Object definitions (one object per row; ID = table × 256 + row; columns 0–10: kind, u8, u16, u8, box x1 y1 x2 y2, two palettes, animations)" : "Data tables"} · ${LANGUAGES[suffix] || suffix} · ${ids.length} table${ids.length === 1 ? "" : "s"} in this file. Column meanings are not known; headers show each column's stored type. Image columns show the image.</p>`);
+  for (const { id } of ids) {
+    let t;
+    try { t = parseTable(await getResource(set, letter, id, suffix)); }
+    catch (e) { view.insertAdjacentHTML("beforeend", `<h2>Table ${id}</h2><p class="meta">Could not be read: ${esc(e.message)}</p>`); continue; }
+    if (state.file !== token) return;
+    const note = [!t.verified && "the two stored copies differ", t.truncated && "stored row list is incomplete"].filter(Boolean).join(", ");
+    view.insertAdjacentHTML("beforeend", `<h2>Table ${id} <span class="meta">· data ID ${id} × 256 + row · ${t.rows.length} rows · ${t.types.length} columns${note ? " · " + note : ""}</span></h2>`);
+    if (!t.rows.length) continue;
+    const wrap = document.createElement("div");
+    wrap.className = "tablewrap";
+    const table = document.createElement("table");
+    table.className = "data";
+    table.innerHTML = `<thead><tr><th>row</th>${t.types.map((ty, i) => `<th>${i}<br><small>${CELL_TYPES[ty] || ty}</small></th>`).join("")}</tr></thead>`;
+    const tb = document.createElement("tbody");
+    t.rows.forEach((row, r) => {
+      const tr = document.createElement("tr");
+      tr.insertAdjacentHTML("beforeend", `<td class="num">${r}</td>`);
+      row.forEach((v, c) => {
+        const td = document.createElement("td"), ty = t.types[c];
+        if (ty === 13 && v) {
+          td.className = "img";
+          td.title = `image id ${v}`;
+          getImage(set, v).then((cv) => {
+            if (!cv) { td.textContent = v; return; }
+            const c2 = document.createElement("canvas");
+            c2.width = cv.width; c2.height = cv.height; c2.className = "px";
+            c2.getContext("2d").drawImage(cv, 0, 0);
+            const sc = Math.min(2, 48 / Math.max(cv.width, cv.height));
+            c2.style.width = cv.width * sc + "px";
+            td.appendChild(c2);
+            td.insertAdjacentHTML("beforeend", `<small>${v}</small>`);
+          });
+        } else if (typeof v === "string") { td.className = "txt"; td.innerHTML = richText(v); }
+        else if (Array.isArray(v)) {
+          td.textContent = v.map((x) => x.join(":")).join(", ");
+          if (ty === 17 && v.length) getAnimation(set, v[0][0], v[0][1], letter === "O" && row[8] && row[9] ? [row[8], row[9]] : null).then((a) => {
+            if (!a) return;
+            const c2 = document.createElement("canvas"), sc = Math.min(1, 64 / Math.max(a.bounds.w, a.bounds.h));
+            c2.width = a.bounds.w; c2.height = a.bounds.h; c2.className = "px"; c2.style.width = a.bounds.w * sc + "px";
+            c2.style.display = "block"; drawFrame(c2.getContext("2d"), a, 0, {});
+            td.prepend(c2);
+          });
+        }
+        else { td.className = "num"; td.textContent = v; }
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+    table.appendChild(tb);
+    wrap.appendChild(table);
+    view.appendChild(wrap);
+  }
+}
+// Fonts (F, from IFNT_Load): u8 kind, description, int16 × 5. Kind 1 is an image font:
+// the first two values are the first and last character code, and one u32 image ID
+// follows per character (0 = no glyph). Other kinds describe a system font.
+async function renderFonts(view, fileNo, token) {
+  const set = state.set, ids = await idsInFile(set, "F", fileNo);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${ids.length} fonts. Image fonts are drawn from glyph images; the others name a system font.</p>`);
+  for (const { id } of ids) {
+    const r = makeReader(await getResource(set, "F", id));
+    const kind = r.u8(), desc = r.str(), h = [r.i16(), r.i16(), r.i16(), r.i16(), r.i16()];
+    if (state.file !== token) return;
+    const box = document.createElement("div");
+    box.className = "player";
+    if (kind !== 1) {
+      box.innerHTML = `<div><strong>Font ${id}</strong><span class="meta"> · system font ${esc(desc || "(default)")} · kind ${kind} · values ${h.join(", ")}</span></div>`;
+      view.appendChild(box);
+      continue;
+    }
+    const glyphs = [];
+    for (let c = h[0]; c <= h[1]; c++) { const img = r.u32(); if (img) glyphs.push([c, img, await getImage(set, img)]); }
+    const chars = glyphs.map(([c]) => String.fromCharCode(c)).join("");
+    box.innerHTML = `<div><strong>Font ${id}</strong><span class="meta"> · image font · characters ${esc(String.fromCharCode(h[0]))}–${esc(String.fromCharCode(h[1]))} · ${glyphs.length} glyphs · values ${h.slice(2).join(", ")}</span></div>`;
+    const sample = document.createElement("canvas");
+    sample.className = "px";
+    const gap = Math.max(0, h[3] || 0), W = glyphs.reduce((sum, g) => sum + (g[2] ? g[2].width + gap : 0), 0) || 1, H = Math.max(1, ...glyphs.map((g) => (g[2] ? g[2].height : 0)));
+    sample.width = W; sample.height = H; sample.style.width = W * 3 + "px";
+    const sctx = sample.getContext("2d");
+    let x = 0;
+    for (const [, , cv] of glyphs) if (cv) { sctx.drawImage(cv, x, H - cv.height); x += cv.width + gap; }
+    box.insertAdjacentHTML("beforeend", `<small class="meta">Sample: ${esc(chars)}</small>`);
+    box.appendChild(sample);
+    view.appendChild(box);
+  }
+}
+async function renderPalettes(view, fileNo, token) {
+  const set = state.set, ids = await idsInFile(set, "P", fileNo);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${ids.length} palettes. Objects name a pair of palettes to recolour shared sprites: each colour found in the first is replaced by the colour at the same position in the second.</p>`);
+  for (const { id } of ids) {
+    const pal = await getPalette(set, id);
+    if (state.file !== token) return;
+    if (!pal) continue;
+    const row = document.createElement("div");
+    row.className = "palrow";
+    row.innerHTML = `<small>palette ${id} · ${pal.length} colours</small><div class="swatches">${pal.map((v) => { const [r, g, b] = rgb565(v); return `<i title="#${[r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("")}" style="background:rgb(${r},${g},${b})"></i>`; }).join("")}</div>`;
+    view.appendChild(row);
+  }
+}
+async function renderMaps(view, fileNo, token) {
+  const set = state.set, ids = await idsInFile(set, "M", fileNo);
+  const langs = Object.keys(LANGUAGES).filter((s) => entry(set, "R", "IdxR" + s));
+  const bar = document.createElement("div");
+  bar.className = "controls";
+  bar.innerHTML = `<label>Names in <select data-a="lang">${langs.map((s) => `<option value="${s}"${s === (state.mapLang || "") ? " selected" : ""}>${LANGUAGES[s]}</option>`).join("")}</select></label>
+    <label><input type="checkbox" data-a="bg" ${state.mapBg !== false ? "checked" : ""}> Background (base map)</label>
+    <label><input type="checkbox" data-a="spr" ${state.mapSpr !== false ? "checked" : ""}> Object sprites</label>
+    <label><input type="checkbox" data-a="obj" ${state.mapObj ? "checked" : ""}> Object labels</label>
+    <label><input type="checkbox" data-a="flags" ${state.mapFlags ? "checked" : ""}> Collision</label>
+    <label>Zoom <select data-a="mz">${[1, 2, 3].map((z) => `<option${z === (state.mapZoom || 2) ? " selected" : ""}>${z}</option>`).join("")}</select></label>`;
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${ids.length} map${ids.length === 1 ? "" : "s"} in this file. Objects with a sprite are drawn; objects without one are triggers, spawn markers, or terrain drawn by the tile layer (the object list gives the reason for each). Collision tints cells the game blocks movement into (the per-cell u16 collision array read by IML_IsValidArea; bits 0x10–0x8000 are directional blocking).</p>`);
+  view.appendChild(bar);
+  const host = document.createElement("div");
+  view.appendChild(host);
+  const q = (a) => bar.querySelector(`[data-a="${a}"]`);
+  const draw = async () => {
+    state.mapLang = q("lang").value; state.mapBg = q("bg").checked; state.mapObj = q("obj").checked; state.mapSpr = q("spr").checked; state.mapFlags = q("flags").checked; state.mapZoom = +q("mz").value;
+    host.innerHTML = "";
+    for (const { id } of ids) {
+      const m = await parseMap(set, id, state.mapLang);
+      if (state.file !== token) return;
+      if (!m) continue;
+      const card = document.createElement("div");
+      card.className = "player";
+      const L = m.layers.find((l) => l.cells);
+      const objs = m.layers.reduce((s, l) => s + l.objects.length, 0);
+      card.innerHTML = `<div><strong>${esc(m.name || "(unnamed)")}</strong><span class="meta"> · map ${id}${m.base ? ` · base map ${m.base}` : " · base map"}${L ? ` · ${L.cols}×${L.rows} tiles of ${L.tw}×${L.th}` : ""} · ${objs} objects · music ${m.music}${m.exact ? "" : " · not fully parsed"}</span></div>`;
+      const wrap = document.createElement("div");
+      wrap.className = "canvas-wrap";
+      const cv = document.createElement("canvas");
+      cv.className = "px";
+      wrap.appendChild(cv);
+      card.appendChild(wrap);
+      if (m.props.length) {
+        const det = document.createElement("details");
+        det.innerHTML = `<summary>Properties (${m.props.length})</summary><pre>${m.props.map(([k, v]) => `${esc(k)} = ${esc(v)}`).join("\n")}</pre>`;
+        card.appendChild(det);
+      }
+      const all = m.layers.flatMap((l) => l.objects);
+      for (const o of all) await resolveObject(set, m, o, state.mapLang);
+      if (objs) {
+        const det = document.createElement("details");
+        det.innerHTML = `<summary>Objects (${objs})</summary><pre>${all.map((o) => {
+          const r = o._res, d = r && r.def;
+          const what = d ? ` → object ${r.oid}${d.name ? " " + esc(d.name) : ""} (kind ${d.kind})` : "";
+          const why = r && r.reason ? ` [${r.reason}]` : "";
+          return `${esc(o.type || "(no type)")}${o.name ? " “" + esc(o.name) + "”" : ""} at ${o.x}, ${o.y}${what}${why}${o.props.length ? " · " + o.props.map(([i, v]) => `${i}=${esc(v)}`).join(", ") : ""}`;
+        }).join("\n")}</pre>`;
+        card.appendChild(det);
+      }
+      host.appendChild(card);
+      await drawMap(cv, set, m, { zoom: state.mapZoom, background: state.mapBg, objects: state.mapObj, flags: state.mapFlags, sprites: state.mapSpr, suffix: state.mapLang });
+    }
+  };
+  bar.onchange = draw;
+  await draw();
+}
+function textRuns(u8) {
+  const runs = [];
+  let start = -1;
+  const flush = (end) => {
+    if (start < 0) return;
+    // Strings are stored with a length byte in front; when that byte happens to be
+    // printable it joins the run, so drop it when it equals the remaining length
+    // (the stored length may count a terminating NUL).
+    const rest = end - start - 1;
+    if (u8[start] === rest || (u8[start] === rest + 1 && u8[end] === 0)) start++;
+    const s = utf8.decode(u8.subarray(start, end));
+    if (!s.includes("�") && (/[^\x00-\x7f]/.test(s) ? s.length >= 2 : s.length >= 4)) runs.push({ off: start, s });
+    start = -1;
+  };
+  for (let i = 0; i < u8.length; i++) {
+    const b = u8[i];
+    let len = 0;
+    if (b >= 0x20 && b < 0x7f) len = 1;
+    else if (b >= 0xc2 && b <= 0xdf && (u8[i + 1] & 0xc0) === 0x80) len = 2;
+    else if (b >= 0xe0 && b <= 0xef && (u8[i + 1] & 0xc0) === 0x80 && (u8[i + 2] & 0xc0) === 0x80) len = 3;
+    if (!len) { flush(i); continue; }
+    if (start < 0) start = i;
+    i += len - 1;
+  }
+  flush(u8.length);
+  return runs;
+}
+function renderText(view, u8, suffix) {
+  const runs = textRuns(u8);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${LANGUAGES[suffix] || suffix} · ${runs.length} text strings, in file order. The surrounding script commands are not decoded yet, so this lists the text the file contains rather than the script itself.</p>`);
+  const ol = document.createElement("ol");
+  ol.className = "strings";
+  for (const r of runs) {
+    const li = document.createElement("li");
+    li.innerHTML = `<small>${r.off.toString(16).padStart(6, "0")}</small> ${richText(r.s)}`;
+    ol.appendChild(li);
+  }
+  view.appendChild(ol);
+  const det = document.createElement("details");
+  det.innerHTML = "<summary>Hex</summary>";
+  view.appendChild(det);
+  renderHex(det, u8, true);
+}
+function renderImages(view, imgs, name, ids) {
+  const z = +$("zoom").value;
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${imgs.length} image${imgs.length === 1 ? "" : "s"} · click an image to save it as PNG</p>`);
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  imgs.forEach((im, i) => {
+    const tile = document.createElement("div");
+    tile.className = "tile";
+    const cv = toCanvas(im);
+    cv.className = "px";
+    cv.style.width = im.w * z + "px";
+    cv.title = "Save as PNG";
+    cv.onclick = () => cv.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `${state.set}_${name}_${i}.png`; a.click(); });
+    tile.appendChild(cv);
+    const id = ids[i] ? ` · id ${ids[i].id}` : "";
+    tile.insertAdjacentHTML("beforeend", `<small>#${i}${id} · ${im.w}×${im.h} · ${im.colors} colours</small>`);
+    grid.appendChild(tile);
+  });
+  view.appendChild(grid);
+}
+async function renderAnimations(view, fileNo, token) {
+  const ids = await idsInFile(state.set, "A", fileNo);
+  const set = state.set, list = [];
+  for (const { id } of ids) {
+    const u8 = await getResource(set, "A", id);
+    try { list.push({ id, ani: await prepareAnimation(set, parseAnimation(u8)) }); }
+    catch (e) { list.push({ id, error: e.message }); }
+    if (state.file !== token) return;
+  }
+  const frames = list.reduce((s, x) => s + (x.ani ? x.ani.frames.length : 0), 0);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${list.length} animations · ${frames} frames · click one to open the player</p>`);
+  const playerHost = document.createElement("div");
+  view.appendChild(playerHost);
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  view.appendChild(grid);
+  let activeTile = null;
+  for (const { id, ani, error } of list) {
+    const tile = document.createElement("div");
+    tile.className = "tile anim";
+    if (error) { tile.innerHTML = `<small>id ${id} · could not be read (${esc(error)})</small>`; grid.appendChild(tile); continue; }
+    const stage = document.createElement("div");
+    stage.className = "stage";
+    const cv = document.createElement("canvas");
+    cv.className = "px";
+    const scale = Math.max(1, Math.min(3, Math.floor(150 / Math.max(ani.bounds.w, ani.bounds.h)) || 1));
+    const fit = Math.min(1, 150 / (Math.max(ani.bounds.w, ani.bounds.h) * scale));
+    cv.width = ani.bounds.w * scale; cv.height = ani.bounds.h * scale;
+    cv.style.width = cv.width * fit + "px";
+    stage.appendChild(cv);
+    tile.appendChild(stage);
+    const label = ani.name ? esc(ani.name) : "(unnamed)";
+    tile.insertAdjacentHTML("beforeend", `<small>${label}<br>id ${id} · ${ani.frames.length} frame${ani.frames.length === 1 ? "" : "s"}</small>`);
+    const pv = { el: tile, ctx: cv.getContext("2d"), ani, scale, visible: false };
+    tile._pv = pv;
+    drawFrame(pv.ctx, ani, 0, { scale });
+    anim.previews.add(pv);
+    observer.observe(tile);
+    tile.onclick = () => {
+      if (activeTile) activeTile.classList.remove("active");
+      tile.classList.add("active"); activeTile = tile;
+      openPlayer(playerHost, id, ani, list.filter((x) => x.ani));
+      playerHost.scrollIntoView({ block: "nearest" });
+    };
+    grid.appendChild(tile);
+  }
+}
+function openPlayer(host, id, ani, siblings) {
+  host.innerHTML = "";
+  const box = document.createElement("div");
+  box.className = "player";
+  const flags = [];
+  if (ani.flags & 0x10) flags.push("stretched layers");
+  if (ani.flags & 0x08) flags.push("layer alpha");
+  if (ani.flags & 0x04) flags.push("flipped layers");
+  if (ani.sounds) flags.push("frame sounds");
+  box.innerHTML = `
+    <div><strong>${ani.name ? esc(ani.name) : "(unnamed)"}</strong>
+      <span class="meta"> · id ${id} · type ${ani.type} · ${ani.frames.length} frames · ${ani.totalTicks} ticks${flags.length ? " · " + flags.join(", ") : ""}</span></div>
+    <div class="canvas-wrap"><canvas class="px"></canvas></div>
+    <div class="controls">
+      <button data-a="prev" title="Previous frame">◀︎</button>
+      <button data-a="play">Pause</button>
+      <button data-a="next" title="Next frame">▶︎</button>
+      <label>Frame <input type="range" data-a="seek" min="0" max="${ani.frames.length - 1}" value="0"></label>
+      <label>Speed <input type="range" data-a="tps" min="2" max="40" value="${anim.tps}"><span data-a="tpsv">${anim.tps}</span> ticks/s</label>
+      <label><input type="checkbox" data-a="boxes"> Boxes</label>
+      <label><input type="checkbox" data-a="mirror"> Mirror</label>
+      ${ani.sounds && ani.sounds.some((s) => s) ? `<label><input type="checkbox" data-a="sound"> Sound</label>` : ""}
+      <label>Zoom <select data-a="zoom"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>6</option></select></label>
+      <button data-a="png">Save frame as PNG</button>
+    </div>
+    <div class="controls">
+      <label>Stack another animation on top
+        <select data-a="stackpick">${siblings.filter((s) => s.id !== id).map((s) => `<option value="${s.id}">id ${s.id} · ${s.ani.name ? esc(s.ani.name) : "(unnamed)"} · ${s.ani.frames.length}f</option>`).join("")}</select></label>
+      <button data-a="stackadd">Add</button>
+      <label>or any id <input data-a="stackid" type="number" min="1" style="width:80px"></label>
+      <button data-a="stackaddid">Add</button>
+      <span data-a="stacklist"></span>
+    </div>
+    <div class="legend"><span><i style="background:var(--box1)"></i>Hit box (set 1)</span><span><i style="background:var(--box2)"></i>Attack box (set 2)</span><span><i style="background:var(--origin)"></i>Origin (0, 0)</span></div>
+    <div class="frameinfo"></div>`;
+  host.appendChild(box);
+  const q = (a) => box.querySelector(`[data-a="${a}"]`);
+  const cv = box.querySelector("canvas"), ctx = cv.getContext("2d"), info = box.querySelector(".frameinfo");
+  const pl = { ani, playing: ani.frames.length > 1, tick: 0, frame: 0, stack: [] };
+  const all = () => [ani, ...pl.stack.map((s) => s.ani)];
+  const setSize = () => { const z = +q("zoom").value, b = unionBounds(all()); cv.width = b.w * z; cv.height = b.h * z; };
+  const renderStackList = () => {
+    const el = q("stacklist");
+    el.innerHTML = "";
+    pl.stack.forEach((s, i) => {
+      const btn = document.createElement("button");
+      btn.textContent = `✕ id ${s.id}${s.ani.name ? " " + s.ani.name : ""}`;
+      btn.title = "Remove from stack";
+      btn.onclick = () => { pl.stack.splice(i, 1); renderStackList(); setSize(); pl.render(true); };
+      el.appendChild(btn);
+    });
+  };
+  const addToStack = async (sid) => {
+    if (!sid || pl.stack.some((s) => s.id === sid)) return;
+    const u8 = await getResource(state.set, "A", sid);
+    if (!u8) return;
+    pl.stack.push({ id: sid, ani: await prepareAnimation(state.set, parseAnimation(u8)) });
+    renderStackList(); setSize(); pl.render(true);
+  };
+  q("stackadd").onclick = () => addToStack(+q("stackpick").value);
+  q("stackaddid").onclick = () => addToStack(+q("stackid").value);
+  pl.render = (fixed) => {
+    if (fixed === undefined) pl.frame = frameAtTick(ani, pl.tick);
+    if (pl.frame !== pl.lastFrame) {
+      pl.lastFrame = pl.frame;
+      const ref = ani.sounds && ani.sounds[pl.frame], snd = q("sound");
+      if (ref && snd && snd.checked) getSound(state.set, ref).then((url) => { if (url) new Audio(url).play().catch(() => {}); });
+    }
+    const f = ani.frames[pl.frame], z = +q("zoom").value, bounds = unionBounds(all()), mirror = q("mirror").checked;
+    drawFrame(ctx, ani, pl.frame, { scale: z, mirror, bounds });
+    for (const s of pl.stack) drawFrame(ctx, s.ani, frameAtTick(s.ani, pl.tick), { scale: z, mirror, bounds, clear: false });
+    if (q("boxes").checked) drawFrame(ctx, { frames: [{ layers: [], boxes1: f.boxes1, boxes2: f.boxes2 }], imgs: new Map() }, 0, { scale: z, mirror, bounds, clear: false, boxes: true });
+    q("seek").value = pl.frame;
+    const extra = [];
+    if (f.v80 !== undefined) extra.push(`value A ${f.v80}`);
+    if (f.v40 !== undefined) extra.push(`value B ${f.v40}`);
+    if (ani.sounds && ani.sounds[pl.frame]) extra.push(`sound ${ani.sounds[pl.frame] >> 8}:${ani.sounds[pl.frame] & 255}`);
+    info.textContent = `Frame ${pl.frame + 1}/${ani.frames.length} · ${ticksOf(f)} tick${ticksOf(f) === 1 ? "" : "s"} · ${f.layers.length} layer${f.layers.length === 1 ? "" : "s"} · boxes ${f.boxes1.length}/${f.boxes2.length}` +
+      (extra.length ? " · " + extra.join(" · ") : "") + "\nImages: " + f.layers.map((L) => L.img).join(", ");
+  };
+  const goto = (i) => {
+    pl.playing = false; q("play").textContent = "Play";
+    pl.frame = (i + ani.frames.length) % ani.frames.length;
+    pl.tick = ani.frames.slice(0, pl.frame).reduce((s, f) => s + ticksOf(f), 0);
+    pl.render(true);
+  };
+  q("play").textContent = pl.playing ? "Pause" : "Play";
+  q("play").disabled = ani.frames.length < 2;
+  q("play").onclick = () => { pl.playing = !pl.playing; q("play").textContent = pl.playing ? "Pause" : "Play"; };
+  q("prev").onclick = () => goto(pl.frame - 1);
+  q("next").onclick = () => goto(pl.frame + 1);
+  q("seek").oninput = (e) => goto(+e.target.value);
+  q("tps").oninput = (e) => { anim.tps = +e.target.value; q("tpsv").textContent = anim.tps; };
+  q("boxes").onchange = q("mirror").onchange = () => pl.render(true);
+  q("zoom").onchange = () => { setSize(); pl.render(true); };
+  q("png").onclick = () => {
+    const c = document.createElement("canvas"), bounds = unionBounds(all()), mirror = q("mirror").checked;
+    c.width = bounds.w; c.height = bounds.h;
+    drawFrame(c.getContext("2d"), ani, pl.frame, { mirror, bounds });
+    for (const s of pl.stack) drawFrame(c.getContext("2d"), s.ani, frameAtTick(s.ani, pl.tick), { mirror, bounds, clear: false });
+    c.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `${state.set}_anim${id}_frame${pl.frame}.png`; a.click(); });
+  };
+  setSize();
+  pl.render();
+  anim.player = pl;
+}
+function renderHex(view, u8, hexOnly) {
+  const lim = Math.min(u8.length, 4096);
+  let hex = "";
+  for (let o = 0; o < lim; o += 16) {
+    const row = u8.subarray(o, Math.min(o + 16, lim));
+    hex += o.toString(16).padStart(6, "0") + "  " + Array.from(row, (b) => b.toString(16).padStart(2, "0")).join(" ").padEnd(48) + "  " +
+      Array.from(row, (b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : ".")).join("") + "\n";
+  }
+  if (u8.length > lim) hex += `… ${u8.length - lim} more bytes`;
+  if (!hexOnly) view.insertAdjacentHTML("beforeend", `<p class="meta">Format not decoded yet</p><h2>Hex (first ${fmtSize(lim)})</h2>`);
+  const pre = document.createElement("pre"); pre.textContent = hex; view.appendChild(pre);
+  if (hexOnly) return;
+  const strs = textRuns(u8);
+  if (strs.length) { view.insertAdjacentHTML("beforeend", `<h2>Text strings (${strs.length})</h2>`); const p2 = document.createElement("pre"); p2.textContent = strs.slice(0, 500).map((r) => r.s).join("\n"); view.appendChild(p2); }
+}
+
+// ---- Wiring -------------------------------------------------------------------
+$("pick").addEventListener("change", (e) => ingest(e.target.files));
+$("set").addEventListener("change", (e) => showSet(e.target.value));
+$("zoom").addEventListener("change", () => { if (state.file && state.file.cat === "I") open(state.file.cat, state.file.entry); });
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  const files = [];
+  async function walk(entry, path) {
+    if (entry.isFile) { const f = await new Promise((r) => entry.file(r)); f._path = path + entry.name; files.push(f); }
+    else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      let batch;
+      do { batch = await new Promise((r) => reader.readEntries(r)); for (const c of batch) await walk(c, path + entry.name + "/"); } while (batch.length);
+    }
+  }
+  for (const item of e.dataTransfer.items) { const en = item.webkitGetAsEntry && item.webkitGetAsEntry(); if (en) await walk(en, ""); }
+  ingest(files);
+});
+</script>
+</body>
+</html>
