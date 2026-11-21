@@ -241,7 +241,14 @@ depend on the kind; monsters (kind 10 and others) have their name in column 11.
 A map object's type (for example `M_Slem`) names a map property whose value lists object
 IDs with spawn chances: `id:chance[:…]-id:chance…`. The browser draws the first object's
 first animation. Kinds 100 and 110 snap to the 18-pixel grid; kinds 15 and 20–29 snap
-vertically (grid + 4). Of 3,909 map objects, 3,868 resolve to a sprite.
+vertically (grid + 4).
+
+Of 3,909 map objects, 3,868 draw a sprite. The other 41 are meant to be invisible, not
+failures, and the object list labels each with the reason: breakable terrain already drawn
+by the tile layer (20, kind 15 `T_Stone`/`T_GenStone`, whose "Blow,N" property marks how
+many hits break the underlying tile), placeholder markers whose type has no spawn entry
+(12), bare position markers with no type (7), and action-point triggers (2, kind 27). None
+of these have an overlay sprite in game.
 
 **Palettes (`P` resources).** int16 count, then count RGB565 colours. When an object names
 two palettes, each image colour found in the first is replaced by the colour at the same

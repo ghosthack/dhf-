@@ -589,7 +589,18 @@ async function resolveObject(set, m, o, suffix) {
     if (def.kind === 100 || def.kind === 110) { x = Math.floor(x / 18) * 18; y = Math.floor(y / 18) * 18; }
     else if (def.kind === 15 || (def.kind >= 20 && def.kind <= 29)) y = Math.floor(y / 18) * 18 + 4;
   }
-  return (o._res = { oid, def, ani, x, y });
+  // When an object has no overlay sprite, say why — most such objects are meant to be
+  // invisible, not failures: triggers, spawn markers, or terrain drawn by the tilemap.
+  let reason = null;
+  if (!ani) {
+    if (!o.type) reason = "position marker";
+    else if (!pv) reason = "no spawn entry (dummy/placeholder)";
+    else if (!def) reason = "object not found";
+    else if (def.kind === 27) reason = "action point (invisible trigger)";
+    else if (def.kind === 15) reason = "breakable terrain (shown by the tile layer)";
+    else reason = "no sprite in object definition";
+  }
+  return (o._res = { oid, def, ani, x, y, reason });
 }
 function drawAnimationAt(ctx, ani, fi, x, y, z) {
   const f = ani.frames[fi];
@@ -972,7 +983,7 @@ async function renderMaps(view, fileNo, token) {
     <label><input type="checkbox" data-a="obj" ${state.mapObj ? "checked" : ""}> Object labels</label>
     <label><input type="checkbox" data-a="flags" ${state.mapFlags ? "checked" : ""}> Cell flags</label>
     <label>Zoom <select data-a="mz">${[1, 2, 3].map((z) => `<option${z === (state.mapZoom || 2) ? " selected" : ""}>${z}</option>`).join("")}</select></label>`;
-  view.insertAdjacentHTML("beforeend", `<p class="meta">${ids.length} map${ids.length === 1 ? "" : "s"} in this file. Objects are marked with their type or name; what they become in game (monsters, exits, decorations) is set by game code. Cell flags tint cells whose flags are set (probably collision or terrain; not confirmed).</p>`);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${ids.length} map${ids.length === 1 ? "" : "s"} in this file. Objects with a sprite are drawn; objects without one are triggers, spawn markers, or terrain drawn by the tile layer (the object list gives the reason for each). Cell flags tint cells whose flags are set (probably collision or terrain; not confirmed).</p>`);
   view.appendChild(bar);
   const host = document.createElement("div");
   view.appendChild(host);
@@ -1007,7 +1018,8 @@ async function renderMaps(view, fileNo, token) {
         det.innerHTML = `<summary>Objects (${objs})</summary><pre>${all.map((o) => {
           const r = o._res, d = r && r.def;
           const what = d ? ` → object ${r.oid}${d.name ? " " + esc(d.name) : ""} (kind ${d.kind})` : "";
-          return `${esc(o.type)}${o.name ? " “" + esc(o.name) + "”" : ""} at ${o.x}, ${o.y}${what}${o.props.length ? " · " + o.props.map(([i, v]) => `${i}=${esc(v)}`).join(", ") : ""}`;
+          const why = r && r.reason ? ` [${r.reason}]` : "";
+          return `${esc(o.type || "(no type)")}${o.name ? " “" + esc(o.name) + "”" : ""} at ${o.x}, ${o.y}${what}${why}${o.props.length ? " · " + o.props.map(([i, v]) => `${i}=${esc(v)}`).join(", ") : ""}`;
         }).join("\n")}</pre>`;
         card.appendChild(det);
       }
