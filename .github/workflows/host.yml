@@ -1,0 +1,82 @@
+# Builds and tests the desktop emulation host (host/) on Linux and macOS.
+name: host
+
+on:
+  push:
+    paths:
+      - "host/**"
+      - "app/src/main/libs/**"
+      - ".github/workflows/host.yml"
+  pull_request:
+    paths:
+      - "host/**"
+      - "app/src/main/libs/**"
+      - ".github/workflows/host.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # A push already tests branches in this repository; only run the pull_request
+    # event for forks, so a pull request is not tested twice.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: host
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake libx11-dev libxkbcommon-dev libwayland-dev libasound2-dev
+
+      - name: Show tool versions
+        run: |
+          rustc --version
+          cargo --version
+          cmake --version
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            host/target
+          key: host-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('host/Cargo.lock') }}
+
+      - name: Build (window and sound)
+        run: cargo build --release --locked
+
+      - name: Build (headless only)
+        run: cargo build --release --locked --no-default-features
+
+      - name: Test
+        run: cargo test --release --locked
+
+      # Boots the game without a window and saves the title screen, so a run shows
+      # that the emulator works on this platform, not only that the code compiles.
+      - name: Run the game headless
+        run: |
+          cargo run --release --locked -- --headless --save "$RUNNER_TEMP/save" \
+            --frames 121 --dump "$RUNNER_TEMP/frames" --dump-every 120
+          ls -l "$RUNNER_TEMP/frames"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: title-screen-${{ runner.os }}
+          path: ${{ runner.temp }}/frames/frame00120.ppm
+          if-no-files-found: error
