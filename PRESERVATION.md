@@ -18,6 +18,8 @@ binary and assets intact; it does not reimplement the game.
 - Later commits removed the online check when starting a new game (Mar 2023), reduced the
   network request timeout to 1031 ms (Aug 2023) and added 29285 Cubics to `Save1.dat`.
 - Nov 2026: pinned the build to a Gradle 7.6.4 wrapper so it builds with current tools.
+- Nov 2026: added the desktop emulation host (`host/`), which runs the same library
+  without Android.
 
 ## What is in the repository
 
@@ -25,7 +27,8 @@ binary and assets intact; it does not reimplement the game.
 |---|---|
 | `app/src/main/libs/armeabi-v7a/libdhunter.so` | **The game.** Prebuilt 32-bit ARM (ARMv7) native library: game logic, UI, rendering, networking. No source. |
 | `app/src/main/libs/armeabi-v7a/libdhunter.so.idb` | IDA Pro database of the library from earlier reverse-engineering work. Not used by the build. |
-| `app/src/main/java/com/bicore/` | Java layer (about 4,000 lines, recovered from the original APK): activity, GL surface, audio, music, font rendering, JNI bridge (`NativeFuntion.java`). |
+| `app/src/main/java/com/bicore/` | Java layer (about 2,800 lines, recovered from the original APK): activity, drawing surfaces, audio, music, font rendering, JNI bridge (`NativeFuntion.java`). |
+| `host/` | **Desktop emulation host.** Runs the unmodified library on a PC inside a CPU emulator, sandboxed. See `host/README.md`. |
 | `app/src/main/assets/Default`, `HVGA` | Game assets for two screen sizes (about 27 MB and 20 MB). |
 | `app/src/main/assets/Save0-2.dat`, `Config.dat` | Bundled save slots and configuration. `Save1.dat` has been modified (extra Cubics), so it is not the original. |
 | `app/src/main/classes.dex` | Original compiled Java from the APK. Kept for reference; the build compiles the Java sources instead. |
@@ -71,10 +74,15 @@ If `dl.google.com` stops serving these exact versions, any copy of `android-32` 
 
 ## Running
 
-- **Devices:** needs a device that can run 32-bit ARM apps. Many newer phones have dropped
-  32-bit support entirely and **cannot run this game at all**. This is the main threat to
-  it staying playable.
-- **Display:** landscape, OpenGL ES 1.x.
+- **On a PC:** `cd host && cargo run --release`. This does not need Android or an ARM
+  device; see `host/README.md`.
+- **Devices:** the Android build needs a device that can run 32-bit ARM apps. Many newer
+  phones have dropped 32-bit support entirely and cannot run it at all, which is why the
+  emulation host exists.
+- **Display:** landscape, 480×320. This build draws in software: the Java layer uses
+  `BitmapSurfaceView`, and the library fills an RGB565 buffer each frame (`FillBuffer`).
+  The library also contains an OpenGL ES 1.x path (`NativeGLSurfaceView`, `nativeRender`),
+  which this build does not use.
 - **Network:** the game's online services are long gone, and new games no longer need them
   (see History). The build is offline: it has no network permission (see the security
   notes).
@@ -309,6 +317,11 @@ From a static check in November 2026. This is not a full audit.
   `nativeTextureSubImage2D`, the purchase callbacks and so on), declared in
   `com/bicore/NativeFuntion.java`.
 - The native code calls back into Java for audio, text drawing, device info and URL opening.
+- Observed while running it in the emulation host (see `host/README.md` for more): it
+  converts Java strings with `String.getBytes("EUC_KR")`; `FillBuffer` releases its frame
+  buffer with `JNI_ABORT` and so depends on the runtime not copying arrays; key events use
+  feature-phone key codes (−1…−4 directions, −5 OK, −22 back); and it makes one `socket()`
+  call at start-up, carrying on when that fails.
 
 **System dependencies**
 - Links only against `libc`, `libm`, `libdl`, `libstdc++`, `libz`, `liblog` and
@@ -406,15 +419,18 @@ Hardening done (November 2026):
 This has been built but not yet tested on a device. If a menu waits for the network,
 look at what that menu asks the Java layer for.
 
+## Emulation host
+
+`host/` runs the unmodified `libdhunter.so` inside the Unicorn CPU emulator and provides
+everything it needs itself: the ~100 imported C functions, a JNI environment, the Java
+layer's behaviour, a file system limited to the assets and one save directory, a window
+and sound. There is no network, no threads and no dynamic loading. No OpenGL translation
+is needed because the game's software renderer is used. This gets past the 32-bit problem,
+removes the Android dependency, and means the 2010-era binary never runs on the real CPU
+or touches the real operating system. `host/README.md` has the details and the limits.
+
 ## Options for the future
 
-- **Emulation host.** Run the unmodified `libdhunter.so` inside a CPU emulator (for example
-  Unicorn), and have the host provide the ~100 imported functions, the 32 JNI entry points
-  and a GLES 1 translation layer (for example gl4es). This gets past the 32-bit problem on
-  any platform, removes the Android dependency, and sandboxes the game: it can only reach
-  files or the network through the host, and the host can log every call.
-- **Audit.** Review the network, file and `dlopen` code paths in Ghidra and record the
-  results here.
 - **Rights.** A rebuild from source would only be possible with the source code or the
   rights holder's permission. If Bicore was acquired or dissolved, the current owner may be
   traceable through Korean company records.

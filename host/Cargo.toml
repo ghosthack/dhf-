@@ -1,0 +1,27 @@
+[package]
+name = "dhost"
+version = "0.1.0"
+edition = "2021"
+description = "Sandboxed desktop emulation host for libdhunter.so (ARMv7 Android native library)"
+publish = false
+
+[dependencies]
+unicorn-engine = { version = "2.1", default-features = false, features = ["arch_arm"] }
+
+miniz_oxide = "0.8"
+fontdue = "0.9"
+encoding_rs = "0.8"
+sha2 = "0.10"
+minifb = { version = "0.28", optional = true, default-features = false, features = ["x11", "wayland"] }
+rodio = { version = "0.20", optional = true, default-features = false, features = ["vorbis", "symphonia-mp3"] }
+
+[features]
+default = ["window", "audio"]
+# A window with mouse input. Without it only --headless is available.
+window = ["dep:minifb"]
+# Sound output (needs the ALSA development files on Linux).
+audio = ["dep:rodio"]
+
+[profile.release]
+opt-level = 3
+debug = 1

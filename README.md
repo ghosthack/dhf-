@@ -10,3 +10,9 @@ apk获取：https://wwr.lanzoui.com/b04g4ofqf 密码c28i
 This repository is based on version 1.07 of Bicore's game Demon Hunter, which fixes its crash problem on higher versions of Android. Can be compiled with gradle
 Download APK: https://wwr.lanzoui.com/b04g4ofqf
 Password: c28i
+
+-------
+
+`host/` contains a desktop emulation host that runs the game's original native library on
+a PC, sandboxed, without Android: `cd host && cargo run --release`. See `host/README.md`
+and `PRESERVATION.md`.
