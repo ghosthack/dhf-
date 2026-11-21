@@ -326,6 +326,21 @@ fn the_game_boots_renders_and_stays_inside_its_sandbox() {
 }
 
 #[test]
+fn language_change_is_saved_through_the_game() {
+    let save = temp_dir("save");
+    let mut s = Session::boot(machine(&save), (480, 320)).unwrap();
+    s.render(0).unwrap();
+    assert_eq!(s.language().unwrap(), b'C', "the bundled config is Chinese");
+    s.save_language(b'E').unwrap();
+    drop(s);
+    // A fresh start reads the language back from the save directory.
+    let mut s = Session::boot(machine(&save), (480, 320)).unwrap();
+    s.render(0).unwrap();
+    assert_eq!(s.language().unwrap(), b'E');
+    assert_eq!(files_in(&save), ["Config.dat", "Debug.txt", "Save0.dat", "Save1.dat", "Save2.dat"]);
+}
+
+#[test]
 fn headless_runs_are_reproducible() {
     let frame = || {
         let save = temp_dir("save");

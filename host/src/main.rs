@@ -30,6 +30,9 @@ use std::path::PathBuf;
 /// SHA-256 of the original `libdhunter.so` from version 1.07.
 const KNOWN_LIB_SHA256: &str = "69f4be20fb14ccc43297e2eb9e256e8fe1061746ffa71ec74cf1083d6f813218";
 
+/// Languages the game ships, with its internal code for each (0 is Korean).
+const LANGUAGES: &[(&str, u8)] = &[("ko", 0), ("en", b'E'), ("ja", b'J'), ("zh", b'C'), ("es", b'S'), ("fr", b'F'), ("de", b'G')];
+
 struct Args {
     lib: PathBuf,
     assets: PathBuf,
@@ -41,7 +44,8 @@ struct Args {
     dump_every: u32,
     scale: u32,
     screen: (u32, u32),
-    language: String,
+    /// `--lang`: (two-letter code reported to the game, the game's own language code).
+    language: Option<(String, u8)>,
     country: String,
     fonts: Vec<PathBuf>,
     /// Scripted input for headless runs: (frame, event).
@@ -57,7 +61,8 @@ fn usage() -> ! {
          \x20 --assets DIR      game assets (default: ../app/src/main/assets)\n\
          \x20 --save DIR        save directory, the only place the game can write (default: ./save)\n\
          \x20 --font PATH       font file for in-game text; repeat to add fallbacks (default: system fonts)\n\
-         \x20 --lang CODE       language code reported to the game (default: en)\n\
+         \x20 --lang CODE       set the game language: ko, en, ja, zh, es, fr or de\n\
+         \x20                   (default: whatever the save directory's Config.dat says)\n\
          \x20 --country CODE    country code reported to the game (default: US)\n\
          \x20 --screen WxH      device resolution reported to the game (default: 480x320)\n\
          \x20 --scale N         window scale: 1, 2 or 4 (default: 2)\n\
@@ -93,7 +98,7 @@ fn parse_args() -> Args {
         dump_every: 10,
         scale: 2,
         screen: (480, 320),
-        language: "en".into(),
+        language: None,
         country: "US".into(),
         fonts: Vec::new(),
         script: Vec::new(),
@@ -115,7 +120,14 @@ fn parse_args() -> Args {
             "--assets" => a.assets = val().into(),
             "--save" => a.save = val().into(),
             "--font" => a.fonts.push(val().into()),
-            "--lang" => a.language = val(),
+            "--lang" => {
+                let v = val().to_ascii_lowercase();
+                let Some((_, code)) = LANGUAGES.iter().find(|(name, _)| *name == v) else {
+                    eprintln!("unknown language `{v}`");
+                    usage()
+                };
+                a.language = Some((v, *code));
+            }
             "--country" => a.country = val(),
             "--screen" => {
                 let v = val();
@@ -221,22 +233,35 @@ fn run(a: &Args) -> Result<(), String> {
     if digest != KNOWN_LIB_SHA256 {
         eprintln!("[host] note: {} is not the 1.07 library this host was tested with (sha256 {digest})", a.lib.display());
     }
-    let mut vfs = vfs::Vfs::new(&a.assets, &a.save)?;
-    vfs.verbose = a.opts.verbose;
-    let java = java::Java {
-        language: a.language.clone(),
-        country: a.country.clone(),
-        verbose: a.opts.verbose,
-        text: Some(font::Text::load(&a.fonts)),
-        ..Default::default()
+    let boot = || -> Result<Session, String> {
+        let mut vfs = vfs::Vfs::new(&a.assets, &a.save)?;
+        vfs.verbose = a.opts.verbose;
+        let java = java::Java {
+            language: a.language.as_ref().map_or("en", |l| l.0.as_str()).to_string(),
+            country: a.country.clone(),
+            verbose: a.opts.verbose,
+            text: Some(font::Text::load(&a.fonts)),
+            ..Default::default()
+        };
+        // Headless runs use a fixed virtual start time (2012-01-01 UTC) so they are reproducible.
+        let clock = if a.headless { Clock::Virtual { micros: 1_325_376_000_000_000 } } else { Clock::Real };
+        if a.opts.verbose {
+            eprintln!("[host] virtual APK: {} bytes; save directory: {}", vfs.apk_len(), a.save.display());
+        }
+        let m = Machine::new(&lib, vfs, java, clock, a.opts.clone())?;
+        Session::boot(m, a.screen).map_err(|e| e.to_string())
     };
-    // Headless runs use a fixed virtual start time (2012-01-01 UTC) so they are reproducible.
-    let clock = if a.headless { Clock::Virtual { micros: 1_325_376_000_000_000 } } else { Clock::Real };
-    if a.opts.verbose {
-        eprintln!("[host] virtual APK: {} bytes; save directory: {}", vfs.apk_len(), a.save.display());
+    let mut s = boot()?;
+    // --lang: the language lives in the game's own config file. If it differs, change it
+    // the way the in-game picker does (set, save, restart), then start over.
+    if let Some((name, code)) = &a.language {
+        s.render(0).map_err(|e| e.to_string())?;
+        if s.language().map_err(|e| e.to_string())? != *code {
+            s.save_language(*code).map_err(|e| e.to_string())?;
+            eprintln!("[host] game language set to `{name}` in {}", a.save.join("Config.dat").display());
+            s = boot()?;
+        }
     }
-    let m = Machine::new(&lib, vfs, java, clock, a.opts.clone())?;
-    let mut s = Session::boot(m, a.screen).map_err(|e| e.to_string())?;
     let r = if a.headless {
         headless(&mut s, a)
     } else {

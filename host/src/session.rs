@@ -113,6 +113,24 @@ impl Session {
         Ok(())
     }
 
+    /// The game's current language: 0 for Korean, otherwise an ASCII letter
+    /// (`E`, `J`, `C`, `S`, `F`, `G`), as in the asset file-name suffixes.
+    pub fn language(&mut self) -> R<u8> {
+        let f = self.m.export("IGM_GetLanguageCode")?;
+        Ok(self.m.call(f, &[])? as u8)
+    }
+
+    /// Change the language and write it to the game's config file, using the same two
+    /// functions as the in-game language picker. The picker then restarts the game; the
+    /// caller does that by booting a fresh session.
+    pub fn save_language(&mut self, code: u8) -> R<()> {
+        let set = self.m.export("IGM_SetLanguageCode")?;
+        let save = self.m.export("IGOpt_SaveConfig")?;
+        self.m.call(set, &[code as u32])?;
+        self.m.call(save, &[])?;
+        Ok(())
+    }
+
     /// Delay in milliseconds the game asked for before its next frame, if any.
     pub fn take_timer(&mut self) -> Option<u32> {
         self.m.java.timer_ms.take()

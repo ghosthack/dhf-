@@ -20,7 +20,7 @@ cargo run --release
 ```
 
 By default it takes the library and assets from `../app/src/main` and keeps saves in
-`./save`. `cargo run --release -- --help` lists the options.
+`./save`. For English text, start it once with `cargo run --release -- --lang en`. `cargo run --release -- --help` lists the options.
 
 | Input | Action |
 |---|---|
@@ -30,10 +30,15 @@ By default it takes the library and assets from `../app/src/main` and keeps save
 | Esc or Backspace | Android back key |
 | `0`–`9`, `-`, `=` | Phone keypad `0`–`9`, `*`, `#` |
 
+**Language.** The bundled configuration is set to Chinese. `--lang en` (or `ko`, `ja`,
+`zh`, `es`, `fr`, `de`) changes it: the host sets the language through the game's own
+functions and the game writes it to `Config.dat` in the save directory, so it only needs
+to be given once. It can also be changed in the game under Menu → System → Option →
+Language Change.
+
 **Text.** The game draws text with the system font. The host looks for common Latin and
-CJK fonts; pass `--font PATH` (repeatable, earlier fonts win) to choose. The bundled
-configuration is set to Chinese, so without a CJK font most text shows as empty boxes.
-The language can be changed in the game under Menu → System → Option.
+CJK fonts; pass `--font PATH` (repeatable, earlier fonts win) to choose. Korean, Japanese
+and Chinese need a CJK font, otherwise text shows as empty boxes.
 
 **Sound.** The bundled configuration has music and sound effects turned down to zero;
 raise them in the same Option screen.
