@@ -80,6 +80,10 @@ ol.strings { background: var(--panel); border: 1px solid var(--border); border-r
 ol.strings li { padding: 2px 0; }
 ol.strings small { color: var(--muted); font-family: ui-monospace, monospace; font-size: 10px; margin-right: 6px; }
 details > summary { cursor: pointer; color: var(--muted); }
+.palrow { margin-bottom: 10px; }
+.palrow small { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 1px; margin-top: 3px; }
+.swatches i { width: 14px; height: 14px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(127,127,127,.25); }
 .tc-y { color: #a06d00; } .tc-o { color: #c25a00; } .tc-g { color: #1e8a3c; } .tc-r { color: #c62828; }
 .tc-b { color: #2457c5; } .tc-w { color: var(--muted); } .tc-p { color: #8e3bbf; } .tc-s { color: #00838f; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tc-y { color: #f2c94c; } :root:not([data-theme="light"]) .tc-o { color: #ffa25c; } :root:not([data-theme="light"]) .tc-g { color: #6fdc8c; } :root:not([data-theme="light"]) .tc-r { color: #ff7b7b; } :root:not([data-theme="light"]) .tc-b { color: #8fb3ff; } :root:not([data-theme="light"]) .tc-p { color: #d59bff; } :root:not([data-theme="light"]) .tc-s { color: #6fe0ea; } }
@@ -108,15 +112,15 @@ details > summary { cursor: pointer; color: var(--muted); }
     <div class="empty">
       <p>Open the game's <code>assets</code> folder (for example <code>app/src/main/assets</code>), or drag it onto this page.</p>
       <p>Everything is decoded locally in your browser. Nothing is uploaded.</p>
-      <p>Images (<code>I</code>), animations (<code>A</code>), data tables (<code>T</code>: items, skills, quests, tips…) and maps (<code>M</code>) are decoded. Scripts (<code>S</code>) and UI (<code>U</code>) show their text. Music (<code>B</code>) and sound effects (<code>W</code>) play. Other folders use formats that are not decoded yet and are shown as hex and text.</p>
+      <p>Images (<code>I</code>), animations (<code>A</code>), data tables (<code>T</code>: items, skills, quests, tips…), object definitions (<code>O</code>), maps (<code>M</code>), palettes (<code>P</code>) and fonts (<code>F</code>) are decoded. Scripts (<code>S</code>) and UI (<code>U</code>) show their text. Music (<code>B</code>) and sound effects (<code>W</code>) play. Other folders use formats that are not decoded yet and are shown as hex and text.</p>
     </div>
   </section>
 </main>
 <script>
 "use strict";
 const CATEGORIES = {
-  A: "Animations", I: "Images", T: "Data tables", S: "Scripts", B: "Music", W: "Sound effects",
-  M: "Maps", O: "Objects", U: "UI", R: "R data", F: "Fonts", P: "P data", V: "V data",
+  A: "Animations", I: "Images", T: "Data tables", O: "Objects", S: "Scripts", B: "Music", W: "Sound effects",
+  M: "Maps", R: "Map properties", U: "UI", F: "Fonts", P: "Palettes", V: "V data",
 };
 const state = { sets: {}, set: null, file: null };
 const cache = { buf: new Map(), idx: new Map(), img: new Map() };
@@ -182,7 +186,7 @@ function parseName(letter, name) {
 // RGB565 if flags & 0x20) and, if flags & 0x02, one alpha byte per pixel.
 // Without an alpha channel, palette index 0 is transparent (as the game draws it).
 function rgb565(v) { return [((v >> 11) & 31) * 255 / 31 | 0, ((v >> 5) & 63) * 255 / 63 | 0, (v & 31) * 255 / 31 | 0]; }
-function decodeImageAt(u8, off) {
+function decodeImageAt(u8, off, remap) {
   const d = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
   if (off + 6 > u8.length) return null;
   let w = d.getInt16(off, true), h = d.getInt16(off + 2, true);
@@ -194,7 +198,11 @@ function decodeImageAt(u8, off) {
   if (w <= 0 || h <= 0 || w > 4096 || h > 4096 || pm === 0 || end > u8.length) return null;
   let p = off + hdr;
   const pal = [];
-  for (let i = 0; i < pc; i++) pal.push(ps === 2 ? rgb565(d.getUint16(p + 2 * i, true)) : [u8[p + 3 * i], u8[p + 3 * i + 1], u8[p + 3 * i + 2]]);
+  for (let i = 0; i < pc; i++) {
+    if (ps === 3) { pal.push([u8[p + 3 * i], u8[p + 3 * i + 1], u8[p + 3 * i + 2]]); continue; }
+    const v = d.getUint16(p + 2 * i, true);
+    pal.push(rgb565(remap && remap.has(v) ? remap.get(v) : v));
+  }
   p += pc * ps;
   const rgba = new Uint8ClampedArray(n * 4), hasAlpha = !!(fl & 0x02);
   for (let i = 0; i < n; i++) {
@@ -223,11 +231,30 @@ function toCanvas(im) {
   cv.getContext("2d").putImageData(new ImageData(im.rgba, im.w, im.h), 0, 0);
   return cv;
 }
-async function getImage(set, id) {
-  const key = `${set}/${id}`;
-  if (!cache.img.has(key)) cache.img.set(key, getResource(set, "I", id).then((u8) => {
-    const im = u8 && decodeImageAt(u8, 0);
+// swap: optional [fromPaletteId, toPaletteId]. Each image palette colour found in the
+// "from" palette is replaced by the colour at the same position in "to"
+// (II_ConvertPalette). Objects use this to recolour shared sprites.
+async function getImage(set, id, swap) {
+  const key = `${set}/${id}${swap ? "/" + swap.join(">") : ""}`;
+  if (!cache.img.has(key)) cache.img.set(key, (async () => {
+    const u8 = await getResource(set, "I", id);
+    let remap = null;
+    if (swap) {
+      const [a, b] = await Promise.all(swap.map((pid) => getPalette(set, pid)));
+      if (a && b) { remap = new Map(); a.forEach((v, i) => { if (!remap.has(v) && i < b.length) remap.set(v, b[i]); }); }
+    }
+    const im = u8 && decodeImageAt(u8, 0, remap);
     return im ? toCanvas(im) : null;
+  })());
+  return cache.img.get(key);
+}
+// Palettes (P): int16 count, then count RGB565 colours.
+function getPalette(set, id) {
+  const key = `pal/${set}/${id}`;
+  if (!cache.img.has(key)) cache.img.set(key, getResource(set, "P", id).then((u8) => {
+    if (!u8 || u8.length < 2) return null;
+    const d = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), n = Math.min(d.getInt16(0, true), (u8.length - 2) >> 1);
+    return Array.from({ length: n }, (_, i) => d.getUint16(2 + 2 * i, true));
   }));
   return cache.img.get(key);
 }
@@ -338,6 +365,41 @@ function parseTable(raw) {
   }
   return out;
 }
+// ---- Animations by ID, object definitions (O) and sounds ------------------------
+async function getAnimation(set, id, base = 0, swap = null) {
+  const key = `ani/${set}/${id}/${base}${swap ? "/" + swap.join(">") : ""}`;
+  if (!cache.img.has(key)) cache.img.set(key, getResource(set, "A", id).then((u8) => u8 ? prepareAnimation(set, parseAnimation(u8), base, swap) : null).catch(() => null));
+  return cache.img.get(key);
+}
+// Object definitions use the same encrypted table format as T. An object ID is
+// table × 256 + row (IGO_Load). Columns 0-10 are fixed: kind, u8, u16, u8,
+// a box (4 × i8: x1 y1 x2 y2), two palette IDs, animation list of (animation ID, image
+// offset); later columns depend on the kind (monsters have a name in column 11).
+function getObjectTable(set, tid, suffix) {
+  const key = `obj/${set}/${tid}/${suffix}`;
+  if (!cache.img.has(key)) cache.img.set(key, getResource(set, "O", tid, suffix).then((u8) => u8 ? parseTable(u8) : null).catch(() => null));
+  return cache.img.get(key);
+}
+async function getObjectDef(set, oid, suffix = "") {
+  const t = await getObjectTable(set, oid >> 8, suffix) || await getObjectTable(set, oid >> 8, "");
+  const row = t && t.rows[oid & 255];
+  if (!row) return null;
+  return { id: oid, kind: row[0], box: row.slice(4, 8), swap: row[8] && row[9] ? [row[8], row[9]] : null, anims: row[10] || [], name: typeof row[11] === "string" ? row[11] : "" };
+}
+// A frame's sound reference is a data-table reference (table × 256 + row); column 0 of
+// that row is a sound-effect resource ID in W (IRM_GetWave).
+async function getSound(set, ref) {
+  const key = `snd/${set}/${ref}`;
+  if (!cache.img.has(key)) cache.img.set(key, (async () => {
+    const t = parseTable(await getResource(set, "T", ref >> 8));
+    const row = t.rows[ref & 255], idx = await getIndex(set, "W");
+    const e = row && idx && idx.ents[row[0] - 1];
+    const f = e && (entry(set, "W", `W${e.file}W.ogg`) || entry(set, "W", `W${e.file}W`));
+    return f ? URL.createObjectURL(f.file) : null;
+  })().catch(() => null));
+  return cache.img.get(key);
+}
+
 // ---- Maps (M + R) -------------------------------------------------------------
 // From IMAP_Load, IMAP_LoadBaseMap, IML_Load and IMAP_Draw. A map ID opens the same
 // resource ID in M (tiles, layers, objects) and R (name and properties; translated).
@@ -393,6 +455,36 @@ async function parseMap(set, id, suffix, asBase) {
   m.tileList = m.tiles || (m.baseMap && m.baseMap.tiles) || [];
   return m;
 }
+// A map object's type names a map property whose value lists object IDs with spawn
+// chances ("id:chance[:...]-id:chance..."). The first ID's default (first) animation is
+// drawn. Some kinds snap to the 18-pixel grid, as IEMain_GenMapGObject does.
+async function resolveObject(set, m, o, suffix) {
+  if (o._res !== undefined) return o._res;
+  const pv = m.props.find(([k]) => k === o.type);
+  const oid = pv ? parseInt(pv[1].split("-")[0].split(":")[0], 10) : 0;
+  const def = oid ? await getObjectDef(set, oid, suffix) : null;
+  const ani = def && def.anims.length ? await getAnimation(set, def.anims[0][0], def.anims[0][1], def.swap) : null;
+  let { x, y } = o;
+  if (def) {
+    if (def.kind === 100 || def.kind === 110) { x = Math.floor(x / 18) * 18; y = Math.floor(y / 18) * 18; }
+    else if (def.kind === 15 || (def.kind >= 20 && def.kind <= 29)) y = Math.floor(y / 18) * 18 + 4;
+  }
+  return (o._res = { oid, def, ani, x, y });
+}
+function drawAnimationAt(ctx, ani, fi, x, y, z) {
+  const f = ani.frames[fi];
+  if (!f) return;
+  for (const L of f.layers) {
+    const im = ani.imgs.get(L.img);
+    if (!im) continue;
+    const w = L.w || im.width, h = L.h || im.height;
+    ctx.setTransform(z, 0, 0, z, (x + L.x) * z, (y + L.y) * z);
+    ctx.globalAlpha = L.alpha / 255;
+    orientTransform(ctx, L.orient, w, h);
+    ctx.drawImage(im, 0, 0, w, h);
+  }
+  ctx.globalAlpha = 1;
+}
 async function drawMap(cv, set, m, opt) {
   const layers = [...(opt.background && m.baseMap ? m.baseMap.layers.map((L) => ({ L, bg: true })) : []), ...m.layers.map((L) => ({ L, bg: false }))];
   const fg = m.layers.filter((L) => L.cells);
@@ -417,6 +509,13 @@ async function drawMap(cv, set, m, opt) {
     }
   }
   ctx.globalAlpha = 1;
+  if (opt.sprites) {
+    for (const L of m.layers) for (const o of L.objects) {
+      const r = await resolveObject(set, m, o, opt.suffix);
+      if (r.ani) drawAnimationAt(ctx, r.ani, 0, r.x, r.y, z);
+    }
+    ctx.setTransform(z, 0, 0, z, 0, 0);
+  }
   if (opt.flags) for (const L of m.layers) {
     if (!L.cells) continue;
     for (let i = 0; i < L.cells.length; i++) {
@@ -464,11 +563,13 @@ function orientTransform(ctx, o, w, h) {
   }
 }
 const rotates = (o) => o >= 3 && o <= 6;
-async function prepareAnimation(set, ani) {
+// base: an offset added to every image ID. Object definitions pair an animation with an
+// offset (IRM_GetAnimation2 → IANI_Load), so one animation can show different images.
+async function prepareAnimation(set, ani, base = 0, swap = null) {
   const ids = new Set();
   ani.frames.forEach((f) => f.layers.forEach((L) => ids.add(L.img)));
   const imgs = new Map();
-  await Promise.all([...ids].map(async (id) => imgs.set(id, await getImage(set, id))));
+  await Promise.all([...ids].map(async (id) => imgs.set(id, await getImage(set, id + base, swap))));
   ani.imgs = imgs;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const grow = (a, b, c, d) => { x0 = Math.min(x0, a); y0 = Math.min(y0, b); x1 = Math.max(x1, c); y1 = Math.max(y1, d); };
@@ -630,17 +731,19 @@ async function open(cat, entry) {
     }
   }
   if (cat === "A" && no !== null) { await renderAnimations(view, no, token); return; }
-  if (cat === "T" && no !== null) { await renderTables(view, no, pn.suffix, token); return; }
+  if ((cat === "T" || cat === "O") && no !== null) { await renderTables(view, no, pn.suffix, token, cat); return; }
   if (cat === "M" && no !== null) { await renderMaps(view, no, token); return; }
+  if (cat === "P" && no !== null) { await renderPalettes(view, no, token); return; }
+  if (cat === "F" && no !== null) { await renderFonts(view, no, token); return; }
   if ((cat === "S" || cat === "U") && no !== null) { renderText(view, u8, pn.suffix); return; }
   renderHex(view, u8);
 }
-async function renderTables(view, fileNo, suffix, token) {
-  const set = state.set, ids = await idsInFile(set, "T", fileNo, suffix);
-  view.insertAdjacentHTML("beforeend", `<p class="meta">Data tables · ${LANGUAGES[suffix] || suffix} · ${ids.length} table${ids.length === 1 ? "" : "s"} in this file. Column meanings are not known; headers show each column's stored type. Image columns show the image.</p>`);
+async function renderTables(view, fileNo, suffix, token, letter = "T") {
+  const set = state.set, ids = await idsInFile(set, letter, fileNo, suffix);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${letter === "O" ? "Object definitions (one object per row; ID = table × 256 + row; columns 0–10: kind, u8, u16, u8, box x1 y1 x2 y2, two palettes, animations)" : "Data tables"} · ${LANGUAGES[suffix] || suffix} · ${ids.length} table${ids.length === 1 ? "" : "s"} in this file. Column meanings are not known; headers show each column's stored type. Image columns show the image.</p>`);
   for (const { id } of ids) {
     let t;
-    try { t = parseTable(await getResource(set, "T", id, suffix)); }
+    try { t = parseTable(await getResource(set, letter, id, suffix)); }
     catch (e) { view.insertAdjacentHTML("beforeend", `<h2>Table ${id}</h2><p class="meta">Could not be read: ${esc(e.message)}</p>`); continue; }
     if (state.file !== token) return;
     const note = [!t.verified && "the two stored copies differ", t.truncated && "stored row list is incomplete"].filter(Boolean).join(", ");
@@ -671,7 +774,16 @@ async function renderTables(view, fileNo, suffix, token) {
             td.insertAdjacentHTML("beforeend", `<small>${v}</small>`);
           });
         } else if (typeof v === "string") { td.className = "txt"; td.innerHTML = richText(v); }
-        else if (Array.isArray(v)) td.textContent = v.map((x) => x.join(":")).join(", ");
+        else if (Array.isArray(v)) {
+          td.textContent = v.map((x) => x.join(":")).join(", ");
+          if (ty === 17 && v.length) getAnimation(set, v[0][0], v[0][1], letter === "O" && row[8] && row[9] ? [row[8], row[9]] : null).then((a) => {
+            if (!a) return;
+            const c2 = document.createElement("canvas"), sc = Math.min(1, 64 / Math.max(a.bounds.w, a.bounds.h));
+            c2.width = a.bounds.w; c2.height = a.bounds.h; c2.className = "px"; c2.style.width = a.bounds.w * sc + "px";
+            c2.style.display = "block"; drawFrame(c2.getContext("2d"), a, 0, {});
+            td.prepend(c2);
+          });
+        }
         else { td.className = "num"; td.textContent = v; }
         tr.appendChild(td);
       });
@@ -682,6 +794,52 @@ async function renderTables(view, fileNo, suffix, token) {
     view.appendChild(wrap);
   }
 }
+// Fonts (F, from IFNT_Load): u8 kind, description, int16 × 5. Kind 1 is an image font:
+// the first two values are the first and last character code, and one u32 image ID
+// follows per character (0 = no glyph). Other kinds describe a system font.
+async function renderFonts(view, fileNo, token) {
+  const set = state.set, ids = await idsInFile(set, "F", fileNo);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${ids.length} fonts. Image fonts are drawn from glyph images; the others name a system font.</p>`);
+  for (const { id } of ids) {
+    const r = makeReader(await getResource(set, "F", id));
+    const kind = r.u8(), desc = r.str(), h = [r.i16(), r.i16(), r.i16(), r.i16(), r.i16()];
+    if (state.file !== token) return;
+    const box = document.createElement("div");
+    box.className = "player";
+    if (kind !== 1) {
+      box.innerHTML = `<div><strong>Font ${id}</strong><span class="meta"> · system font ${esc(desc || "(default)")} · kind ${kind} · values ${h.join(", ")}</span></div>`;
+      view.appendChild(box);
+      continue;
+    }
+    const glyphs = [];
+    for (let c = h[0]; c <= h[1]; c++) { const img = r.u32(); if (img) glyphs.push([c, img, await getImage(set, img)]); }
+    const chars = glyphs.map(([c]) => String.fromCharCode(c)).join("");
+    box.innerHTML = `<div><strong>Font ${id}</strong><span class="meta"> · image font · characters ${esc(String.fromCharCode(h[0]))}–${esc(String.fromCharCode(h[1]))} · ${glyphs.length} glyphs · values ${h.slice(2).join(", ")}</span></div>`;
+    const sample = document.createElement("canvas");
+    sample.className = "px";
+    const gap = Math.max(0, h[3] || 0), W = glyphs.reduce((sum, g) => sum + (g[2] ? g[2].width + gap : 0), 0) || 1, H = Math.max(1, ...glyphs.map((g) => (g[2] ? g[2].height : 0)));
+    sample.width = W; sample.height = H; sample.style.width = W * 3 + "px";
+    const sctx = sample.getContext("2d");
+    let x = 0;
+    for (const [, , cv] of glyphs) if (cv) { sctx.drawImage(cv, x, H - cv.height); x += cv.width + gap; }
+    box.insertAdjacentHTML("beforeend", `<small class="meta">Sample: ${esc(chars)}</small>`);
+    box.appendChild(sample);
+    view.appendChild(box);
+  }
+}
+async function renderPalettes(view, fileNo, token) {
+  const set = state.set, ids = await idsInFile(set, "P", fileNo);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${ids.length} palettes. Objects name a pair of palettes to recolour shared sprites: each colour found in the first is replaced by the colour at the same position in the second.</p>`);
+  for (const { id } of ids) {
+    const pal = await getPalette(set, id);
+    if (state.file !== token) return;
+    if (!pal) continue;
+    const row = document.createElement("div");
+    row.className = "palrow";
+    row.innerHTML = `<small>palette ${id} · ${pal.length} colours</small><div class="swatches">${pal.map((v) => { const [r, g, b] = rgb565(v); return `<i title="#${[r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("")}" style="background:rgb(${r},${g},${b})"></i>`; }).join("")}</div>`;
+    view.appendChild(row);
+  }
+}
 async function renderMaps(view, fileNo, token) {
   const set = state.set, ids = await idsInFile(set, "M", fileNo);
   const langs = Object.keys(LANGUAGES).filter((s) => entry(set, "R", "IdxR" + s));
@@ -689,7 +847,8 @@ async function renderMaps(view, fileNo, token) {
   bar.className = "controls";
   bar.innerHTML = `<label>Names in <select data-a="lang">${langs.map((s) => `<option value="${s}"${s === (state.mapLang || "") ? " selected" : ""}>${LANGUAGES[s]}</option>`).join("")}</select></label>
     <label><input type="checkbox" data-a="bg" ${state.mapBg !== false ? "checked" : ""}> Background (base map)</label>
-    <label><input type="checkbox" data-a="obj" ${state.mapObj ? "checked" : ""}> Objects</label>
+    <label><input type="checkbox" data-a="spr" ${state.mapSpr !== false ? "checked" : ""}> Object sprites</label>
+    <label><input type="checkbox" data-a="obj" ${state.mapObj ? "checked" : ""}> Object labels</label>
     <label><input type="checkbox" data-a="flags" ${state.mapFlags ? "checked" : ""}> Cell flags</label>
     <label>Zoom <select data-a="mz">${[1, 2, 3].map((z) => `<option${z === (state.mapZoom || 2) ? " selected" : ""}>${z}</option>`).join("")}</select></label>`;
   view.insertAdjacentHTML("beforeend", `<p class="meta">${ids.length} map${ids.length === 1 ? "" : "s"} in this file. Objects are marked with their type or name; what they become in game (monsters, exits, decorations) is set by game code. Cell flags tint cells whose flags are set (probably collision or terrain; not confirmed).</p>`);
@@ -698,7 +857,7 @@ async function renderMaps(view, fileNo, token) {
   view.appendChild(host);
   const q = (a) => bar.querySelector(`[data-a="${a}"]`);
   const draw = async () => {
-    state.mapLang = q("lang").value; state.mapBg = q("bg").checked; state.mapObj = q("obj").checked; state.mapFlags = q("flags").checked; state.mapZoom = +q("mz").value;
+    state.mapLang = q("lang").value; state.mapBg = q("bg").checked; state.mapObj = q("obj").checked; state.mapSpr = q("spr").checked; state.mapFlags = q("flags").checked; state.mapZoom = +q("mz").value;
     host.innerHTML = "";
     for (const { id } of ids) {
       const m = await parseMap(set, id, state.mapLang);
@@ -720,13 +879,19 @@ async function renderMaps(view, fileNo, token) {
         det.innerHTML = `<summary>Properties (${m.props.length})</summary><pre>${m.props.map(([k, v]) => `${esc(k)} = ${esc(v)}`).join("\n")}</pre>`;
         card.appendChild(det);
       }
+      const all = m.layers.flatMap((l) => l.objects);
+      for (const o of all) await resolveObject(set, m, o, state.mapLang);
       if (objs) {
         const det = document.createElement("details");
-        det.innerHTML = `<summary>Objects (${objs})</summary><pre>${m.layers.flatMap((l) => l.objects).map((o) => `${esc(o.type)}${o.name ? " “" + esc(o.name) + "”" : ""} at ${o.x}, ${o.y}${o.props.length ? " · " + o.props.map(([i, v]) => `${i}=${esc(v)}`).join(", ") : ""}`).join("\n")}</pre>`;
+        det.innerHTML = `<summary>Objects (${objs})</summary><pre>${all.map((o) => {
+          const r = o._res, d = r && r.def;
+          const what = d ? ` → object ${r.oid}${d.name ? " " + esc(d.name) : ""} (kind ${d.kind})` : "";
+          return `${esc(o.type)}${o.name ? " “" + esc(o.name) + "”" : ""} at ${o.x}, ${o.y}${what}${o.props.length ? " · " + o.props.map(([i, v]) => `${i}=${esc(v)}`).join(", ") : ""}`;
+        }).join("\n")}</pre>`;
         card.appendChild(det);
       }
       host.appendChild(card);
-      await drawMap(cv, set, m, { zoom: state.mapZoom, background: state.mapBg, objects: state.mapObj, flags: state.mapFlags });
+      await drawMap(cv, set, m, { zoom: state.mapZoom, background: state.mapBg, objects: state.mapObj, flags: state.mapFlags, sprites: state.mapSpr, suffix: state.mapLang });
     }
   };
   bar.onchange = draw;
@@ -863,6 +1028,7 @@ function openPlayer(host, id, ani, siblings) {
       <label>Speed <input type="range" data-a="tps" min="2" max="40" value="${anim.tps}"><span data-a="tpsv">${anim.tps}</span> ticks/s</label>
       <label><input type="checkbox" data-a="boxes"> Boxes</label>
       <label><input type="checkbox" data-a="mirror"> Mirror</label>
+      ${ani.sounds && ani.sounds.some((s) => s) ? `<label><input type="checkbox" data-a="sound"> Sound</label>` : ""}
       <label>Zoom <select data-a="zoom"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>6</option></select></label>
       <button data-a="png">Save frame as PNG</button>
     </div>
@@ -904,6 +1070,11 @@ function openPlayer(host, id, ani, siblings) {
   q("stackaddid").onclick = () => addToStack(+q("stackid").value);
   pl.render = (fixed) => {
     if (fixed === undefined) pl.frame = frameAtTick(ani, pl.tick);
+    if (pl.frame !== pl.lastFrame) {
+      pl.lastFrame = pl.frame;
+      const ref = ani.sounds && ani.sounds[pl.frame], snd = q("sound");
+      if (ref && snd && snd.checked) getSound(state.set, ref).then((url) => { if (url) new Audio(url).play().catch(() => {}); });
+    }
     const f = ani.frames[pl.frame], z = +q("zoom").value, bounds = unionBounds(all()), mirror = q("mirror").checked;
     drawFrame(ctx, ani, pl.frame, { scale: z, mirror, bounds });
     for (const s of pl.stack) drawFrame(ctx, s.ani, frameAtTick(s.ani, pl.tick), { scale: z, mirror, bounds, clear: false });
@@ -912,7 +1083,7 @@ function openPlayer(host, id, ani, siblings) {
     const extra = [];
     if (f.v80 !== undefined) extra.push(`value A ${f.v80}`);
     if (f.v40 !== undefined) extra.push(`value B ${f.v40}`);
-    if (ani.sounds && ani.sounds[pl.frame]) extra.push(`sound ref ${ani.sounds[pl.frame]}`);
+    if (ani.sounds && ani.sounds[pl.frame]) extra.push(`sound ${ani.sounds[pl.frame] >> 8}:${ani.sounds[pl.frame] & 255}`);
     info.textContent = `Frame ${pl.frame + 1}/${ani.frames.length} · ${ticksOf(f)} tick${ticksOf(f) === 1 ? "" : "s"} · ${f.layers.length} layer${f.layers.length === 1 ? "" : "s"} · boxes ${f.boxes1.length}/${f.boxes2.length}` +
       (extra.length ? " · " + extra.join(" · ") : "") + "\nImages: " + f.layers.map((L) => L.img).join(", ");
   };

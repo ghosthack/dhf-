@@ -97,8 +97,11 @@ and file names follow `<letter><number><letter>`, for example `I12I`.
 | `U` | UI layouts | Text extracted; layout not decoded |
 | `B` | Music (`.mp3`) | Plays |
 | `W` | Sound effects (`.ogg`) | Plays |
-| `M` + `R` | Maps: tile layers, objects, properties; `R` holds names and properties (296 maps) | Decoded and drawn |
-| `O`, `F`, `P`, `V` | Object definitions, fonts, palettes (`V` is empty) | Not decoded yet; shown as hex and text |
+| `M` + `R` | Maps: tile layers, objects, properties; `R` holds names and properties (296 maps) | Decoded and drawn, with object sprites |
+| `O` | Object definitions: monsters, NPCs, doors, chests, effects (421 objects, 7 languages) | Decoded |
+| `P` | Palettes used to recolour shared sprites (94) | Decoded |
+| `F` | Fonts: 12 image fonts (damage numbers and similar) and 3 system-font entries | Decoded |
+| `V` | Empty | — |
 
 Folders `O`, `R`, `S`, `T` and `U` exist in seven languages, marked by a suffix on the
 file name: none for Korean, then `C` Chinese, `E` English, `F` French, `G` German,
@@ -227,6 +230,31 @@ as a wider background layer (probably parallax). There are 9 base maps. Object t
 prefixes such as `M_` (monster spawns), `MA_` (areas and exits), `MO_` (doors and other
 map objects) and `MB_` (boxes); what each becomes is decided by game code
 (`IGM_GenMapGObject`) and is not decoded.
+
+**Object definitions (`O` resources).** From `IGO_Load` and `IEMain_GenMapGObject`. Same
+encrypted table format as `T`; an object ID is `table × 256 + row`. Columns 0–10 are
+fixed: kind (u8), u8, u16, u8, a box (4 × i8: x1, y1, x2, y2), two palette IDs, and an
+animation list of (animation ID, image offset) pairs. The image offset is added to every
+image ID in the animation, so one animation can show different images. Later columns
+depend on the kind; monsters (kind 10 and others) have their name in column 11.
+
+A map object's type (for example `M_Slem`) names a map property whose value lists object
+IDs with spawn chances: `id:chance[:…]-id:chance…`. The browser draws the first object's
+first animation. Kinds 100 and 110 snap to the 18-pixel grid; kinds 15 and 20–29 snap
+vertically (grid + 4). Of 3,909 map objects, 3,868 resolve to a sprite.
+
+**Palettes (`P` resources).** int16 count, then count RGB565 colours. When an object names
+two palettes, each image colour found in the first is replaced by the colour at the same
+position in the second (`II_ConvertPalette`). This is how monster variants are recoloured.
+
+**Fonts (`F` resources).** From `IFNT_Load`: u8 kind, description, 5 × int16. Kind 1 is an
+image font: the first two values are the first and last character code, followed by one
+u32 image ID per character (0 = no glyph). Other kinds name a system font
+(`System:Plain:Medium` and similar).
+
+**Frame sounds.** An animation's per-frame sound reference is a data-table reference
+(`table × 256 + row`, always table 41). Column 0 of that row is a sound-effect resource ID
+in `W`, whose index entry gives the `W<n>W.ogg` file (`IRM_GetWave`).
 
 **Scripts (`S`).** Strings are stored with a length byte in front (the length counts a
 terminating NUL). The command format around them (`ISRT_Load`) is not decoded yet.
