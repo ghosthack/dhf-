@@ -24,6 +24,15 @@ pub const KEY_DOWN: i32 = -2;
 pub const KEY_LEFT: i32 = -3;
 pub const KEY_RIGHT: i32 = -4;
 pub const KEY_OK: i32 = -5;
+// What the on-screen buttons do, found by comparing each button with each key code in a
+// dungeon: A is OK (attack, talk), B is keypad 2 (jump), C is keypad 9, the two quick
+// slots are keypad 0 and #. The soft keys open the map and the menu.
+pub const KEY_JUMP: i32 = b'2' as i32;
+pub const KEY_BUTTON_C: i32 = b'9' as i32;
+pub const KEY_SLOT_1: i32 = b'0' as i32;
+pub const KEY_SLOT_2: i32 = b'#' as i32;
+pub const KEY_MAP: i32 = -6;
+pub const KEY_MENU: i32 = -16;
 pub const KEY_BACK: i32 = -22;
 
 /// Input events understood by the library's `nativeHandleEvent(type, a, b, c, d)`.
