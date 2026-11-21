@@ -4,15 +4,55 @@ Runs the original, unmodified `libdhunter.so` (32-bit ARM, Android) on a desktop
 inside a CPU emulator. No Android, no 32-bit ARM device, and no trust in the binary: the
 game can only see and do what this program hands it.
 
-Tested on Linux x86-64. Nothing in the code is Linux-specific, but macOS and Windows
-builds have not been tried.
+Built and tested by CI on Linux, macOS (Apple Silicon) and Windows. The window and sound
+have been used on Linux and started on Windows; on macOS they are built but have not been
+looked at.
 
 ## Running
 
 Needs a recent Rust toolchain (tested with 1.97), CMake and a C compiler (for the Unicorn
-CPU emulator). On
-Linux sound also needs the ALSA development package, and the window needs the xkbcommon
-libraries at run time (Debian/Ubuntu: `libasound2-dev libxkbcommon0 libxkbcommon-x11-0`).
+CPU emulator).
+
+- **Linux:** sound also needs the ALSA development package, and the window needs the
+  xkbcommon libraries at run time (Debian/Ubuntu:
+  `libasound2-dev libxkbcommon0 libxkbcommon-x11-0`).
+- **macOS:** the Xcode command line tools and CMake (`brew install cmake`).
+- **Windows:** see below.
+
+### Windows
+
+The Unicorn build needs more than Rust and CMake on Windows: the Visual Studio C++ build
+tools, LLVM (for `libclang`) and Ninja. With `winget`:
+
+```powershell
+winget install --id Git.Git -e
+winget install --id Kitware.CMake -e
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+winget install --id Rustlang.Rustup -e
+winget install --id LLVM.LLVM -e
+winget install --id Ninja-build.Ninja -e
+```
+
+Then, in a new terminal:
+
+```powershell
+$env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
+cd host
+cargo run --release -- --lang en
+```
+
+What goes wrong without the last two packages:
+
+- `Unable to find libclang`: LLVM is not installed, or `LIBCLANG_PATH` does not point at
+  its `bin` directory.
+- `unable to find a build program corresponding to "Ninja"`: Ninja is not on `PATH`. The
+  copy that ships inside the Visual Studio build tools is found by Unicorn's build script
+  but not passed on to CMake, so it only works from a "Developer PowerShell for VS".
+
+Started from a remote shell (SSH, a service), the window opens in a session with no
+desktop and nobody sees it. Start it from a terminal on the desktop itself.
+
+### All systems
 
 ```sh
 cd host
@@ -133,6 +173,8 @@ build inside an OS sandbox as well.
 ```sh
 cargo test --release
 ```
+
+There are 16 tests; Windows runs 15, because the symlink test needs Unix.
 
 They cover the file-system confinement, the heap, rejected and corrupted library files,
 wild guest jumps and pointers, refused network/thread/loader calls, `printf`, the sound
