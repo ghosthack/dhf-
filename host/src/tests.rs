@@ -416,6 +416,57 @@ fn headless_runs_are_reproducible() {
     assert!(frame() == frame(), "two runs with the same input must draw the same frame");
 }
 
+/// The whole sound path except the last hop to a device: game requests go in, and the
+/// samples a sound card would have been given come out.
+#[cfg(feature = "audio")]
+#[test]
+fn audio_requests_produce_sound() {
+    use crate::audio::Audio;
+    use crate::java::AudioCmd;
+    // Loudest sample in the next `n` samples of stream `i` (0.0 once a stream has ended).
+    fn peak(a: &mut Audio, i: usize, n: usize) -> f32 {
+        a.captured()[i].by_ref().take(n).fold(0.0f32, |m, s| m.max(s.abs()))
+    }
+    let mut a = Audio::capture(Path::new(ASSETS));
+
+    // A sound effect and a music track the game really asks for.
+    a.apply(AudioCmd::PlaySfx("W19W".into()));
+    assert_eq!(a.captured().len(), 1);
+    assert!(peak(&mut a, 0, 40_000) > 0.02, "the sound effect should be audible");
+
+    a.apply(AudioCmd::PlayMusic { name: "B7B".into(), looped: true });
+    assert_eq!(a.captured().len(), 2);
+    assert!(peak(&mut a, 1, 400_000) > 0.02, "the music should be audible");
+
+    // Volume follows the game's option screen. (A change takes a few milliseconds of
+    // audio to apply, so let some pass before measuring.)
+    a.apply(AudioCmd::MusicVolume(0.0));
+    peak(&mut a, 1, 20_000);
+    assert_eq!(peak(&mut a, 1, 100_000), 0.0, "music at volume 0 must be silent");
+    a.apply(AudioCmd::MusicVolume(0.5));
+    peak(&mut a, 1, 20_000);
+    let half = peak(&mut a, 1, 400_000);
+    assert!(half > 0.01, "music should come back when the volume is raised");
+
+    // A looped track keeps going past its own length; stopping it ends the stream.
+    assert!(peak(&mut a, 1, 2_000_000) > 0.01);
+    a.apply(AudioCmd::StopMusic("B7B".into()));
+    peak(&mut a, 1, 20_000);
+    assert_eq!(peak(&mut a, 1, 100_000), 0.0, "stopped music must be silent");
+
+    // A new effect picks up the current effect volume.
+    a.apply(AudioCmd::SfxVolume(0.0));
+    a.apply(AudioCmd::PlaySfx("W19W".into()));
+    assert_eq!(peak(&mut a, 2, 40_000), 0.0, "an effect at volume 0 must be silent");
+
+    // Clip names come from the guest; anything that is not a plain name is ignored.
+    for bad in ["", "../B/B7B", "W19W.ogg", "..", "/etc/passwd", "W19W\0", "nosuchclip"] {
+        a.apply(AudioCmd::PlaySfx(bad.into()));
+        a.apply(AudioCmd::PlayMusic { name: bad.into(), looped: false });
+    }
+    assert_eq!(a.captured().len(), 3, "bad clip names must not open anything");
+}
+
 #[cfg(feature = "audio")]
 #[test]
 fn bundled_audio_decodes() {

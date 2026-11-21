@@ -21,13 +21,28 @@ fn clip_path(assets: &Path, kind: &str, name: &str, ext: &str) -> Option<PathBuf
 #[cfg(feature = "audio")]
 mod imp {
     use super::*;
+    use rodio::queue::SourcesQueueOutput;
     use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
     use std::collections::HashMap;
     use std::fs::File;
     use std::io::BufReader;
 
+    /// Where finished audio goes.
+    enum Output {
+        /// The system's default sound device.
+        Device {
+            /// Dropping the stream closes the device, so it is held for as long as `handle`.
+            _stream: OutputStream,
+            handle: OutputStreamHandle,
+        },
+        /// Kept in memory so a test can read the samples a device would have received.
+        #[cfg_attr(not(test), allow(dead_code))]
+        Capture(Vec<SourcesQueueOutput<f32>>),
+        None,
+    }
+
     pub struct Audio {
-        out: Option<(OutputStream, OutputStreamHandle)>,
+        out: Output,
         assets: PathBuf,
         music: HashMap<String, Sink>,
         sfx: Vec<Sink>,
@@ -38,20 +53,48 @@ mod imp {
     impl Audio {
         pub fn new(assets: &Path) -> Audio {
             let out = match OutputStream::try_default() {
-                Ok(o) => Some(o),
+                Ok((stream, handle)) => Output::Device { _stream: stream, handle },
                 Err(e) => {
                     eprintln!("[host] no audio output ({e}); continuing without sound");
-                    None
+                    Output::None
                 }
             };
+            Self::with_output(assets, out)
+        }
+
+        /// An `Audio` with no device: everything it would play is kept for [`Audio::captured`].
+        #[cfg(test)]
+        pub fn capture(assets: &Path) -> Audio {
+            Self::with_output(assets, Output::Capture(Vec::new()))
+        }
+
+        /// The streams produced so far, one per clip started, in order.
+        #[cfg(test)]
+        pub fn captured(&mut self) -> &mut Vec<SourcesQueueOutput<f32>> {
+            match &mut self.out {
+                Output::Capture(v) => v,
+                _ => panic!("not a capturing Audio"),
+            }
+        }
+
+        fn with_output(assets: &Path, out: Output) -> Audio {
             Audio { out, assets: assets.to_path_buf(), music: HashMap::new(), sfx: Vec::new(), sfx_volume: 1.0, music_volume: 1.0 }
         }
 
-        fn open(&self, kind: &str, name: &str, ext: &str) -> Option<(Sink, Decoder<BufReader<File>>)> {
-            let (_, handle) = self.out.as_ref()?;
+        /// Decode a clip and make a sink for it whose output is already routed to `out`.
+        fn open(&mut self, kind: &str, name: &str, ext: &str) -> Option<(Sink, Decoder<BufReader<File>>)> {
+            if matches!(self.out, Output::None) {
+                return None;
+            }
             let file = File::open(clip_path(&self.assets, kind, name, ext)?).ok()?;
             let source = Decoder::new(BufReader::new(file)).ok()?;
-            Some((Sink::try_new(handle).ok()?, source))
+            let (sink, stream) = Sink::new_idle();
+            match &mut self.out {
+                Output::Device { handle, .. } => handle.play_raw(stream).ok()?,
+                Output::Capture(streams) => streams.push(stream),
+                Output::None => return None,
+            }
+            Some((sink, source))
         }
 
         pub fn apply(&mut self, cmd: AudioCmd) {
