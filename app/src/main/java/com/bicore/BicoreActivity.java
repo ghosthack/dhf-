@@ -4,12 +4,10 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
-import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Vibrator;
 import android.provider.Settings;
-import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.widget.Toast;
@@ -278,21 +276,17 @@ public class BicoreActivity extends Activity implements NativeFuntion.EventListe
         return Build.MODEL;
     }
 
+    // The app has no network permission (the game's servers are gone), so always
+    // report that no connection is available.
     @Override // com.bicore.NativeFuntion.EventListener
     public boolean IsEnableDataConnect() {
-        Log.d(TAG, "IsEnableDataConnect: ");
-        if (((TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE)).getDataState() == TelephonyManager.DATA_CONNECTED) {
-            return true;
-        }
+        Log.d(TAG, "IsEnableDataConnect: offline build");
         return false;
     }
 
     @Override // com.bicore.NativeFuntion.EventListener
     public boolean IsEnableWifi() {
-        Log.d(TAG, "IsEnableWifi: ");
-        if (((WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE)).getWifiState() == 3) {
-            return true;
-        }
+        Log.d(TAG, "IsEnableWifi: offline build");
         return false;
     }
 
@@ -326,8 +320,14 @@ public class BicoreActivity extends Activity implements NativeFuntion.EventListe
 
     @Override // com.bicore.NativeFuntion.EventListener
     public void OnRequestPayment(String paycode) {
-        Log.d(TAG, "OnRequestPayment: ");
-        Log.e(TAG, "*OnRequestPayment - Not avilable. make MarketClass inheritive.");
+        // The carrier billing services this game used no longer exist. Tell the game
+        // the purchase was cancelled so it leaves the purchase screen.
+        Log.d(TAG, "OnRequestPayment: no billing available, cancelling " + paycode);
+        runOnUiThread(new Runnable() {
+            public void run() {
+                NativeFuntion.nativePuchaseCancel();
+            }
+        });
     }
 
     @Override // com.bicore.NativeFuntion.EventListener

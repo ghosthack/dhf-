@@ -108,7 +108,7 @@ public class BicoreGraphic extends RelativeLayout implements NativeFuntion.Frame
         this.mEdit.setVisibility(View.INVISIBLE);
         this.strInsertText = "";
         this.mEditparam = new RelativeLayout.LayoutParams(100, 100);
-        this.mEditparam.leftMargin = KTMarket.USER_ACCREDIT_ERROR;
+        this.mEditparam.leftMargin = 200;
         this.mEditparam.topMargin = 50;
         addView(this.mEdit, this.mEditparam);
         this.EditBoxInputType = 1;

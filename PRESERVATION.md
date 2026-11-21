@@ -26,7 +26,6 @@ binary and assets intact; it does not reimplement the game.
 | `app/src/main/libs/armeabi-v7a/libdhunter.so` | **The game.** Prebuilt 32-bit ARM (ARMv7) native library: game logic, UI, rendering, networking. No source. |
 | `app/src/main/libs/armeabi-v7a/libdhunter.so.idb` | IDA Pro database of the library from earlier reverse-engineering work. Not used by the build. |
 | `app/src/main/java/com/bicore/` | Java layer (about 4,000 lines, recovered from the original APK): activity, GL surface, audio, music, font rendering, JNI bridge (`NativeFuntion.java`). |
-| `app/src/main/java/com/kt`, `com/lguplus`, `com/skt` | Interface stubs for the three Korean carriers' billing and licensing services. These services no longer exist. |
 | `app/src/main/assets/Default`, `HVGA` | Game assets for two screen sizes (about 27 MB and 20 MB). |
 | `app/src/main/assets/Save0-2.dat`, `Config.dat` | Bundled save slots and configuration. `Save1.dat` has been modified (extra Cubics), so it is not the original. |
 | `app/src/main/classes.dex` | Original compiled Java from the APK. Kept for reference; the build compiles the Java sources instead. |
@@ -77,7 +76,8 @@ If `dl.google.com` stops serving these exact versions, any copy of `android-32` 
   it staying playable.
 - **Display:** landscape, OpenGL ES 1.x.
 - **Network:** the game's online services are long gone, and new games no longer need them
-  (see History). See the security notes before allowing it network access.
+  (see History). The build is offline: it has no network permission (see the security
+  notes).
 
 ## Asset formats and the asset browser
 
@@ -282,13 +282,21 @@ the servers it talks to**. If any of the domains above lapse and are registered 
 else, the game will trust their responses, and it parses them with 2010-era C code
 (`sprintf`, `strcpy`) that may be exploitable.
 
-Recommended steps:
+Hardening done (November 2026):
 
-1. Remove `android.permission.INTERNET` from `AndroidManifest.xml`. Android will then refuse
+1. `android.permission.INTERNET` is removed from `AndroidManifest.xml`, so Android refuses
    all network connections from the app, native code included.
-2. Remove the other unneeded permissions: `READ_PRIVILEGED_PHONE_STATE`,
-   `READ_PHONE_STATE`, `ACCESS_NETWORK_STATE` and `ACCESS_WIFI_STATE`.
-3. Remove the dead carrier billing stubs and make the purchase callbacks no-ops.
+2. The other unneeded permissions are removed: `READ_PRIVILEGED_PHONE_STATE`,
+   `READ_PHONE_STATE`, `ACCESS_NETWORK_STATE` and `ACCESS_WIFI_STATE`. The app now asks
+   only for `WAKE_LOCK` and `VIBRATE`.
+3. The carrier billing code (`KTMarket`, `LGUMarket` and the KT, LG U+ and SKT service
+   interfaces) is removed. The game's activity now extends `BicoreActivity` directly; a
+   purchase request is answered at once with "cancelled" (`nativePuchaseCancel`).
+4. The Java layer reports no Wi-Fi and no mobile data to the game, since it cannot
+   connect.
+
+This has been built but not yet tested on a device. If a menu waits for the network,
+look at what that menu asks the Java layer for.
 
 ## Options for the future
 
