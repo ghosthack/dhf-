@@ -93,7 +93,7 @@ and file names follow `<letter><number><letter>`, for example `I12I`.
 | `I` | Images: sprites, UI, effects, portraits, item icons (4,210 per set) | Decoded |
 | `A` | Animations: characters, body parts, weapons, effects, portraits (2,756 per set) | Decoded and playable |
 | `T` | Data tables: items, skills, quests, monsters, tips, UI text (43 tables, 1,983 rows) | Decoded, all 7 languages |
-| `S` | Scripts: events and dialogue | Text extracted; commands not decoded |
+| `S` | Scripts: events, quests and dialogue (432 per language) | Decoded: dialogue view and readable listing |
 | `U` | UI layouts | Text extracted; layout not decoded |
 | `B` | Music (`.mp3`) | Plays |
 | `W` | Sound effects (`.ogg`) | Plays |
@@ -256,8 +256,39 @@ u32 image ID per character (0 = no glyph). Other kinds name a system font
 (`table × 256 + row`, always table 41). Column 0 of that row is a sound-effect resource ID
 in `W`, whose index entry gives the `W<n>W.ogg` file (`IRM_GetWave`).
 
-**Scripts (`S`).** Strings are stored with a length byte in front (the length counts a
-terminating NUL). The command format around them (`ISRT_Load`) is not decoded yet.
+**Scripts (`S` resources).** From `ISRT_Load`, `ISOP_NewScriptOp` and the op classes'
+`ReadParam` functions. A small stack machine.
+
+```
+int32 item count, int32, then items, each starting with a u8 op:
+  0   label            u16-length text
+  1   function start   u8 function ID, int16
+  25  include script   u16 script ID
+  2   PUSHVAR          u8
+  3   PUSH             u8 (low 2 bits: scope), int16 index
+  4   PUSHCONST        u8 type; 0: u8 bool, 3: int32, 7: u8-length text
+  20  JUMPFALSE        int32 step
+  21  JUMP             int32 step
+  22  SETFLAG          u8
+  24  CALL             u8 function number
+  23  SAVESSP          (marks where the next call's arguments start)
+  5–19                 SET ADD SUB MUL DIV NEG AND OR NOT EQ GT LT GTEQ LTEQ NEQ
+  other (only 26 occurs, once per function, probably "end")
+```
+
+Strings use a length byte that counts a terminating NUL. `CALL n` runs native function
+*n* if the game registers one, otherwise script function *n* (defined with op 1 in the
+script or an included one). The native table is filled by `IGL_InitFunTable` and
+`IGL_InitCustomFunTable` and read by `IGL_GetFun`; its 123 entries were resolved
+statically from the binary (following each global-offset-table slot to its function) and
+are listed in the browser as `SCRIPT_NATIVES` (regenerate with `tools/ghidra/script_natives.py`). Examples: 8 `ISND_PlayBGM`, 49/50
+`IUIF_GetGProperty`/`IUIF_SetGProperty`, 120 `ShowChoiceMsg`, 131 `AddQuest`. Every `CALL`
+in every script resolves to either a native or a script function. Script function 70 (in
+shared script 30) is the dialogue routine; its arguments are an object, position,
+speaker name, face, text colour, display frame, speech-bubble tail and the line.
+
+All 432 scripts in each of the 7 languages parse exactly; there are about 4,100 dialogue
+lines per language.
 
 ## What we know about the native binary
 

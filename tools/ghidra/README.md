@@ -6,6 +6,9 @@ the binary; they do not modify or rebuild anything.
 - `Decomp.java`: decompiles the named functions and writes each to `<name>.c` in an output
   folder.
 - `Callers.java`: prints which functions call each named function.
+- `script_natives.py` (no Ghidra needed): lists the native function behind each script
+  `CALL` number by following the stores in `IGL_InitFunTable` and
+  `IGL_InitCustomFunTable`. Needs `readelf`, `nm` and `llvm-objdump`.
 
 Requires Ghidra 11.4.2 and JDK 21 (the `dhf-` cloud environment installs Ghidra to
 `/opt/ghidra_11.4.2_PUBLIC`).
