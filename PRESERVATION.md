@@ -176,10 +176,12 @@ box: int16 x1, y1, x2, y2     (inclusive corners)
 Orientation: 0 none, 1 flip horizontally, 2 flip vertically, 3 rotate 90° clockwise,
 4 rotate 90° counter-clockwise, 5 anti-transpose, 6 transpose, 7 rotate 180°. Only 0, 1, 2
 and 7 occur in the data. Blend modes (from `ES_DrawTexture`) never occur. The two box sets
-look like body and attack boxes but this is not confirmed. Player characters are built
-from several animations drawn together (body parts, outfit, weapon); the browser can
-stack animations to show this. The tick rate is not confirmed; the browser defaults to
-15 ticks per second.
+are a **hit box (set 1) and an attack box (set 2)**: `IGM_CollisionCheck` tests a moving
+object's set 2 against other objects' set 1. Player characters are built from several
+animations drawn together (body parts, outfit, weapon); the browser can stack animations
+to show this. A frame lasts `extra + 1` ticks, and **a tick is 40 ms (25 per second)**:
+the frame timer's interval is set to `0x28` in `IGM_Init` and read by `TimerCallback`
+(both dereference the same timer global), driven by `nativeRender` in real milliseconds.
 
 **Data tables (`T` resources).** From `IGD_Load`, `IFS_GTableDeCode` and
 `IVO_LoadVariantObj`. Code refers to a table row as `tableID × 256 + row`.
@@ -217,9 +219,10 @@ M: u8 cell format (1 = 16-bit cells, else 8-bit)
 layer: int16 tile width, tile height, columns, rows
   if columns × rows > 0:
     cells (u8 or u16 each; value v draws tile v − 1 of the tile list, 0 = empty)
-    u16 flags per cell (bit 0 mirrors the tile horizontally; other bits do not affect
-    drawing, probably collision or terrain)
-    u8 marker; if 1, one more byte per cell
+    u16 per cell: bit 0 mirrors the tile horizontally when drawing; bits 0x10–0x8000 are
+    per-cell collision read by IML_IsValidArea during movement (directional blocking)
+    u8 marker; if 1, one more byte per cell — a per-cell terrain/tile number
+    (IML_GetTileNumber)
   else: u8
   u16 object count, objects:
     type, name, int16 x, int16 y, u8, u8 property count, (u8 index, text) pairs

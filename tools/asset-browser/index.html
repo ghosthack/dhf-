@@ -278,6 +278,8 @@ function getPalette(set, id) {
 // Each layer: int16 x, int16 y, [int16 w, int16 h if flags & 0x10],
 //   [u8 alpha if flags & 0x08], [u8 orientation if flags & 0x04],
 //   [u8 blend mode if flags & 0x02], u32 image ID.
+// A frame lasts (extra + 1) ticks; the game's tick is 40 ms (25/second), from the frame
+// timer set in IGM_Init and read by TimerCallback.
 function parseAnimation(u8) {
   const d = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
   let p = 0;
@@ -766,7 +768,7 @@ function frameAtTick(ani, tick) {
 }
 
 // ---- Animation loop --------------------------------------------------------
-const anim = { previews: new Set(), player: null, tps: 15, last: 0, acc: 0, tick: 0 };
+const anim = { previews: new Set(), player: null, tps: 25, last: 0, acc: 0, tick: 0 };
 function loop(now) {
   const dt = Math.min(250, now - (anim.last || now));
   anim.last = now;
@@ -981,9 +983,9 @@ async function renderMaps(view, fileNo, token) {
     <label><input type="checkbox" data-a="bg" ${state.mapBg !== false ? "checked" : ""}> Background (base map)</label>
     <label><input type="checkbox" data-a="spr" ${state.mapSpr !== false ? "checked" : ""}> Object sprites</label>
     <label><input type="checkbox" data-a="obj" ${state.mapObj ? "checked" : ""}> Object labels</label>
-    <label><input type="checkbox" data-a="flags" ${state.mapFlags ? "checked" : ""}> Cell flags</label>
+    <label><input type="checkbox" data-a="flags" ${state.mapFlags ? "checked" : ""}> Collision</label>
     <label>Zoom <select data-a="mz">${[1, 2, 3].map((z) => `<option${z === (state.mapZoom || 2) ? " selected" : ""}>${z}</option>`).join("")}</select></label>`;
-  view.insertAdjacentHTML("beforeend", `<p class="meta">${ids.length} map${ids.length === 1 ? "" : "s"} in this file. Objects with a sprite are drawn; objects without one are triggers, spawn markers, or terrain drawn by the tile layer (the object list gives the reason for each). Cell flags tint cells whose flags are set (probably collision or terrain; not confirmed).</p>`);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${ids.length} map${ids.length === 1 ? "" : "s"} in this file. Objects with a sprite are drawn; objects without one are triggers, spawn markers, or terrain drawn by the tile layer (the object list gives the reason for each). Collision tints cells the game blocks movement into (the per-cell u16 collision array read by IML_IsValidArea; bits 0x10–0x8000 are directional blocking).</p>`);
   view.appendChild(bar);
   const host = document.createElement("div");
   view.appendChild(host);
@@ -1173,7 +1175,7 @@ function openPlayer(host, id, ani, siblings) {
       <button data-a="stackaddid">Add</button>
       <span data-a="stacklist"></span>
     </div>
-    <div class="legend"><span><i style="background:var(--box1)"></i>Box set 1</span><span><i style="background:var(--box2)"></i>Box set 2</span><span><i style="background:var(--origin)"></i>Origin (0, 0)</span></div>
+    <div class="legend"><span><i style="background:var(--box1)"></i>Hit box (set 1)</span><span><i style="background:var(--box2)"></i>Attack box (set 2)</span><span><i style="background:var(--origin)"></i>Origin (0, 0)</span></div>
     <div class="frameinfo"></div>`;
   host.appendChild(box);
   const q = (a) => box.querySelector(`[data-a="${a}"]`);
