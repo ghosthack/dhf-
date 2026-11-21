@@ -79,6 +79,43 @@ If `dl.google.com` stops serving these exact versions, any copy of `android-32` 
 - **Network:** the game's online services are long gone, and new games no longer need them
   (see History). See the security notes before allowing it network access.
 
+## Asset formats and the asset browser
+
+`tools/asset-browser/index.html` is a local viewer for the assets. Open it in a browser,
+then choose the `app/src/main/assets` folder (or drag it onto the page). It decodes the
+files in the browser; nothing is uploaded and no assets are stored in the tool.
+
+The game loads assets from `assets/<set>/<letter>/<name>`. `<set>` is `Default` or `HVGA`,
+and file names follow `<letter><number><letter>`, for example `I12I`.
+
+| Folder | Contents | Status |
+|---|---|---|
+| `I` | Images: sprites, UI, effects, logos (4,210 images in 134 files per set) | Decoded |
+| `B` | Music (`.mp3`) | Plays |
+| `W` | Sound effects (`.ogg`) | Plays |
+| `A`, `M`, `O`, `R`, `S`, `T`, `U`, `F`, `P`, `V` | Animations, maps, objects, scripts, fonts and other data | Not decoded yet; shown as hex and text |
+| `Idx*` | Index tables for each folder | Not decoded yet |
+
+Files with a language suffix (for example `S0SC`, `S0SE`, `S0SF`, `S0SG`, `S0SJ`, `S0SS`)
+appear to be translations.
+
+**Image format (`I` files).** Each file is a series of images back to back, with no file
+header. Each image is:
+
+| Field | Size | Notes |
+|---|---|---|
+| width, height | 2 × int16 LE | |
+| flags | u8 | see below |
+| palette count | u8 | |
+| (extended header) | 8 more bytes | only if `flags & 0x80`; width and height then sit at offsets 10 and 12 |
+| palette | count × 2 or 3 bytes | RGB565 LE, or RGB888 if `flags & 0x40` |
+| pixels | w × h × 1 or 2 bytes | 8-bit palette indices if `flags & 0x10`, RGB565 if `flags & 0x20` |
+| alpha | w × h bytes | only if `flags & 0x02` |
+
+If `flags & 0x01` is set, palette index 0 is transparent. The layout comes from the game's
+`II_GetImagePtr` and `II_GetImageAlphaPtr` functions, and every image file in both sets
+parses to its exact last byte with it.
+
 ## What we know about the native binary
 
 From a static check in November 2026. This is not a full audit.

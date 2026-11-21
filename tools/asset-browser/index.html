@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asset Browser</title>
+<style>
+:root {
+  --bg: #f6f6f4; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70;
+  --border: #e2e2e0; --accent: #3557c7; --accent-text: #ffffff;
+  --sel: #e8edfb; --check-a: #e9e9e9; --check-b: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151517; --panel: #1e1e21; --text: #ececee; --muted: #9a9aa2;
+    --border: #2e2e33; --accent: #7b96f0; --accent-text: #101014;
+    --sel: #262c40; --check-a: #2a2a2e; --check-b: #333338;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151517; --panel: #1e1e21; --text: #ececee; --muted: #9a9aa2;
+  --border: #2e2e33; --accent: #7b96f0; --accent-text: #101014;
+  --sel: #262c40; --check-a: #2a2a2e; --check-b: #333338;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+header .grow { flex: 1; }
+button, select, label.btn { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+label.btn.primary, button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+main { display: grid; grid-template-columns: 260px 1fr; height: calc(100% - 53px); }
+nav { border-right: 1px solid var(--border); overflow: auto; background: var(--panel); }
+nav details { border-bottom: 1px solid var(--border); }
+nav summary { padding: 8px 12px; cursor: pointer; font-weight: 600; display: flex; justify-content: space-between; }
+nav summary span { color: var(--muted); font-weight: 400; }
+nav ul { list-style: none; margin: 0; padding: 0 0 6px; }
+nav li { padding: 3px 12px 3px 24px; cursor: pointer; font-family: ui-monospace, monospace; font-size: 13px; display: flex; justify-content: space-between; }
+nav li:hover { background: var(--sel); }
+nav li.active { background: var(--sel); color: var(--accent); }
+nav li span { color: var(--muted); }
+#view { overflow: auto; padding: 16px; }
+.empty { color: var(--muted); max-width: 560px; margin: 40px auto; }
+.empty code { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+.meta { color: var(--muted); margin: 0 0 12px; }
+.grid { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.tile { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
+.tile canvas { image-rendering: pixelated; max-width: 100%; height: auto;
+  background: repeating-conic-gradient(var(--check-a) 0 25%, var(--check-b) 0 50%) 0 0 / 12px 12px; cursor: pointer; }
+.tile small { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; }
+pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow: auto; font-size: 12px; }
+audio { width: min(520px, 100%); }
+h2 { font-size: 15px; margin: 16px 0 8px; }
+@media (max-width: 720px) {
+  main { grid-template-columns: 1fr; grid-template-rows: 40% 60%; }
+  nav { border-right: 0; border-bottom: 1px solid var(--border); }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Asset Browser</h1>
+  <label class="btn primary">Open assets folder
+    <input id="pick" type="file" webkitdirectory directory multiple hidden>
+  </label>
+  <select id="set" hidden></select>
+  <span class="grow"></span>
+  <label>Zoom
+    <select id="zoom"><option>1</option><option selected>2</option><option>3</option><option>4</option></select>
+  </label>
+</header>
+<main>
+  <nav id="nav"></nav>
+  <section id="view">
+    <div class="empty">
+      <p>Open the game's <code>assets</code> folder (for example <code>app/src/main/assets</code>), or drag it onto this page.</p>
+      <p>Everything is decoded locally in your browser. Nothing is uploaded.</p>
+      <p>Images (<code>I</code>) are decoded and shown as sprites. Music (<code>B</code>) and sound effects (<code>W</code>) play. Other folders use formats that are not decoded yet and are shown as hex and text.</p>
+    </div>
+  </section>
+</main>
+<script>
+"use strict";
+const CATEGORIES = {
+  I: "Images", B: "Music", W: "Sound effects", A: "Animations", T: "T data", S: "Scripts",
+  M: "Maps", O: "Objects", U: "UI", R: "R data", F: "Fonts", P: "P data", V: "V data",
+};
+const state = { sets: {}, set: null, file: null };
+const $ = (id) => document.getElementById(id);
+
+// ---- Image format -------------------------------------------------------
+// Files in I/ are a sequence of images, each:
+//   int16 width, int16 height, u8 flags, u8 paletteCount   (6-byte header)
+//   flags & 0x80: 14-byte header, width/height at offsets 10/12
+//   palette: paletteCount entries, RGB565 (2 bytes) or RGB888 if flags & 0x40
+//   pixels:  width*height, 8-bit palette indices (flags & 0x10) or RGB565 (flags & 0x20)
+//   alpha:   width*height bytes if flags & 0x02; if flags & 0x01, index 0 is transparent
+function rgb565(v) { return [((v >> 11) & 31) * 255 / 31 | 0, ((v >> 5) & 63) * 255 / 63 | 0, (v & 31) * 255 / 31 | 0]; }
+function decodeImages(buf) {
+  const d = new DataView(buf), u8 = new Uint8Array(buf), out = [];
+  let off = 0;
+  while (off + 6 <= u8.length) {
+    let w = d.getInt16(off, true), h = d.getInt16(off + 2, true);
+    const fl = u8[off + 4], pc = u8[off + 5];
+    let hdr = 6;
+    if (fl & 0x80) { hdr = 14; w = d.getInt16(off + 10, true); h = d.getInt16(off + 12, true); }
+    const ps = (fl & 0x40) ? 3 : 2, pm = (fl & 0x10) ? 1 : (fl & 0x20) ? 2 : 0, n = w * h;
+    const end = off + hdr + pc * ps + pm * n + ((fl & 0x02) ? n : 0);
+    if (w <= 0 || h <= 0 || w > 4096 || h > 4096 || pm === 0 || end > u8.length) { out.error = `Unrecognised data at byte ${off}`; break; }
+    let p = off + hdr;
+    const pal = [];
+    for (let i = 0; i < pc; i++) {
+      pal.push(ps === 2 ? rgb565(d.getUint16(p + 2 * i, true)) : [u8[p + 3 * i], u8[p + 3 * i + 1], u8[p + 3 * i + 2]]);
+    }
+    p += pc * ps;
+    const rgba = new Uint8ClampedArray(n * 4);
+    for (let i = 0; i < n; i++) {
+      let c, a = 255;
+      if (pm === 1) { const ix = u8[p + i]; c = pal[ix] || [255, 0, 255]; if ((fl & 0x01) && ix === 0) a = 0; }
+      else c = rgb565(d.getUint16(p + 2 * i, true));
+      rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = a;
+    }
+    p += pm * n;
+    if (fl & 0x02) for (let i = 0; i < n; i++) rgba[i * 4 + 3] = u8[p + i];
+    out.push({ w, h, flags: fl, colors: pc, rgba });
+    off = end;
+  }
+  return out;
+}
+
+// ---- Loading ------------------------------------------------------------
+function ingest(files) {
+  const sets = {};
+  for (const f of files) {
+    const parts = (f.webkitRelativePath || f._path || f.name).split("/");
+    if (parts.length < 3) continue;
+    const [set, cat, name] = parts.slice(-3);
+    if (!CATEGORIES[cat]) continue;
+    ((sets[set] ||= {})[cat] ||= []).push({ name, file: f });
+  }
+  const names = Object.keys(sets).sort();
+  if (!names.length) { $("view").innerHTML = '<div class="empty"><p>No asset folders found. Open the folder that contains <code>Default</code> and <code>HVGA</code>.</p></div>'; return; }
+  for (const s of names) for (const c in sets[s]) sets[s][c].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  state.sets = sets;
+  const sel = $("set");
+  sel.innerHTML = names.map((n) => `<option>${n}</option>`).join("");
+  sel.hidden = names.length < 2;
+  showSet(names[0]);
+}
+function showSet(name) {
+  state.set = name;
+  const cats = state.sets[name], nav = $("nav");
+  nav.innerHTML = "";
+  for (const c of Object.keys(CATEGORIES).filter((c) => cats[c])) {
+    const det = document.createElement("details");
+    det.open = c === "I";
+    det.innerHTML = `<summary>${CATEGORIES[c]} <span>${c}/ · ${cats[c].length}</span></summary>`;
+    const ul = document.createElement("ul");
+    for (const e of cats[c]) {
+      const li = document.createElement("li");
+      li.innerHTML = `${e.name}<span>${fmtSize(e.file.size)}</span>`;
+      li.onclick = () => { nav.querySelectorAll("li.active").forEach((x) => x.classList.remove("active")); li.classList.add("active"); open(c, e); };
+      ul.appendChild(li);
+    }
+    det.appendChild(ul);
+    nav.appendChild(det);
+  }
+  const first = nav.querySelector("li");
+  if (first) first.click();
+}
+function fmtSize(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB"; }
+
+// ---- Views --------------------------------------------------------------
+async function open(cat, entry) {
+  state.file = { cat, entry };
+  const view = $("view");
+  view.innerHTML = `<p class="meta">${state.set}/${cat}/${entry.name} · ${fmtSize(entry.file.size)}</p>`;
+  if (/\.(ogg|mp3)$/i.test(entry.name)) {
+    const a = document.createElement("audio");
+    a.controls = true; a.src = URL.createObjectURL(entry.file);
+    view.appendChild(a);
+    return;
+  }
+  const buf = await entry.file.arrayBuffer();
+  if (cat === "I" && !entry.name.startsWith("Idx")) {
+    const imgs = decodeImages(buf);
+    if (imgs.length) { renderImages(view, imgs, entry.name); if (imgs.error) view.insertAdjacentHTML("beforeend", `<p class="meta">${imgs.error}</p>`); return; }
+  }
+  renderHex(view, buf);
+}
+function renderImages(view, imgs, name) {
+  const z = +$("zoom").value;
+  view.insertAdjacentHTML("beforeend", `<p class="meta">${imgs.length} image${imgs.length === 1 ? "" : "s"} · click an image to save it as PNG</p>`);
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  imgs.forEach((im, i) => {
+    const tile = document.createElement("div");
+    tile.className = "tile";
+    const cv = document.createElement("canvas");
+    cv.width = im.w; cv.height = im.h;
+    cv.getContext("2d").putImageData(new ImageData(im.rgba, im.w, im.h), 0, 0);
+    cv.style.width = im.w * z + "px";
+    cv.title = "Save as PNG";
+    cv.onclick = () => cv.toBlob((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `${state.set}_${name}_${i}.png`; a.click(); });
+    tile.appendChild(cv);
+    tile.insertAdjacentHTML("beforeend", `<small>#${i} · ${im.w}×${im.h} · ${im.colors} colours</small>`);
+    grid.appendChild(tile);
+  });
+  view.appendChild(grid);
+}
+function renderHex(view, buf) {
+  const u8 = new Uint8Array(buf), lim = Math.min(u8.length, 4096);
+  let hex = "";
+  for (let o = 0; o < lim; o += 16) {
+    const row = u8.subarray(o, Math.min(o + 16, lim));
+    hex += o.toString(16).padStart(6, "0") + "  " + Array.from(row, (b) => b.toString(16).padStart(2, "0")).join(" ").padEnd(48) + "  " +
+      Array.from(row, (b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : ".")).join("") + "\n";
+  }
+  if (u8.length > lim) hex += `… ${u8.length - lim} more bytes`;
+  const strs = [];
+  let cur = "";
+  for (const b of u8) { if (b >= 32 && b < 127) cur += String.fromCharCode(b); else { if (cur.length >= 4) strs.push(cur); cur = ""; } }
+  if (cur.length >= 4) strs.push(cur);
+  view.insertAdjacentHTML("beforeend", `<p class="meta">Format not decoded yet</p><h2>Hex (first ${fmtSize(lim)})</h2>`);
+  const pre = document.createElement("pre"); pre.textContent = hex; view.appendChild(pre);
+  if (strs.length) { view.insertAdjacentHTML("beforeend", `<h2>Text strings (${strs.length})</h2>`); const p2 = document.createElement("pre"); p2.textContent = strs.slice(0, 500).join("\n"); view.appendChild(p2); }
+}
+
+// ---- Wiring -------------------------------------------------------------
+$("pick").addEventListener("change", (e) => ingest(e.target.files));
+$("set").addEventListener("change", (e) => showSet(e.target.value));
+$("zoom").addEventListener("change", () => { if (state.file) open(state.file.cat, state.file.entry); });
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  const files = [];
+  async function walk(entry, path) {
+    if (entry.isFile) { const f = await new Promise((r) => entry.file(r)); f._path = path + entry.name; files.push(f); }
+    else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      let batch;
+      do { batch = await new Promise((r) => reader.readEntries(r)); for (const c of batch) await walk(c, path + entry.name + "/"); } while (batch.length);
+    }
+  }
+  for (const item of e.dataTransfer.items) { const en = item.webkitGetAsEntry && item.webkitGetAsEntry(); if (en) await walk(en, ""); }
+  ingest(files);
+});
+</script>
+</body>
+</html>
