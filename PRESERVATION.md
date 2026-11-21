@@ -334,6 +334,45 @@ From a static check in November 2026. This is not a full audit.
 
 These need a function-by-function review in Ghidra or IDA.
 
+## Audit of the native code (November 2026)
+
+A function-by-function read of the network, file and `dlopen` code paths in Ghidra. The
+headline is that **the offline build removes the `INTERNET` permission, so every network
+path below is now unreachable** — the audit records what the code would do if it ran, not
+a live exposure in the shipped offline build.
+
+**Process and code execution.** No `exec*`, `system`, `popen`, `fork` or `ptrace` imports;
+no `mmap`/`mprotect` and no writable-executable memory, so the binary cannot run external
+programs or generate code.
+
+**`dlopen` / `dlsym`.** Used in exactly one function, `importGLInit`. It opens
+`libGLESv1_CM.so` and resolves a fixed list of about 26 OpenGL ES 1.x entry points
+(`glClear`, `glMatrixMode`, `glDrawArrays`, …). No other library name or symbol is passed,
+and the names are constant strings in the binary, not taken from data or the network. This
+is the ordinary way to bind the GL driver.
+
+**Network.** All socket calls go through `MC_net*` wrappers, then `INET_*`, then the game
+loops (`IEU_NetComm_*`, `IEU_N_Main_*`). Replies are read into one fixed buffer (about
+15 KB, at a fixed offset in a per-connection structure) and parsed by `INM_ReadInt16` /
+`INM_ReadString`, which advance a read cursor by length values taken from the reply. The
+cursor is not visibly bounds-checked against the buffer, so a hostile or corrupt server
+reply could over-read past the buffer; replies are RC4-decoded first. This is the concrete
+risk the security section warns about, and it is the reason the build is offline. Hosts
+contacted were the Bicore domains and `www.kiwu.net` (all long gone).
+
+**Files.** All file access goes through `MC_fs*` wrappers (`MC_fsOpen`, `MC_fsRead`,
+`MC_fsMkDir`, `MC_fsRemove`, `MC_fsRename`). Normal play reads bundled assets and reads and
+writes save and config files in the app's own storage. The one place a path is built from
+external input is the patch download loop (`IEU_N_Main_GetPatchDataLoop`), which makes
+directories and files from names sent by the server (`INM_ReadString` → `MC_fsMkDir`); the
+names are not sanitised in the code read. That path is only reached from the network, so
+the offline build does not run it.
+
+**Conclusion.** The binary has no hidden capability beyond what its imports allow, does not
+run code or other programs, and loads only the system GL library. Its real weakness is
+trusting server replies and server-named paths in 2010-era C. Removing `INTERNET` closes
+all of it; nothing here needs the binary itself to be changed.
+
 ## Security risk and recommended hardening
 
 The main risk is not the binary doing something on its own, but **someone else controlling
