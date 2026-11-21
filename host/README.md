@@ -127,7 +127,8 @@ cargo test --release
 ```
 
 They cover the file-system confinement, the heap, rejected and corrupted library files,
-wild guest jumps and pointers, refused network/thread/loader calls, `printf`, and an
+wild guest jumps and pointers, refused network/thread/loader calls, `printf`, the sound
+path, and an
 end-to-end run that boots the game, taps into a saved game and checks which files exist
 afterwards.
 
@@ -154,5 +155,6 @@ afterwards.
 - Only the mouse acts as a finger; there is no multi-touch.
 - The on-screen text field (`EditText`, used for online login) is not implemented.
 - Vibration is ignored.
-- Audio was checked as far as decoding the bundled files and seeing the game's play
-  requests; it has not been listened to on a machine with a sound device.
+- Audio is tested up to the samples a sound device would be given (`cargo test` plays a
+  real effect and music track into memory and checks loudness, volume, looping and
+  stopping). The final hand-off to a device has not been listened to.
