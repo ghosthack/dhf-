@@ -11,8 +11,8 @@ builds have not been tried.
 
 Needs a recent Rust toolchain (tested with 1.97), CMake and a C compiler (for the Unicorn
 CPU emulator). On
-Linux the window and sound also need the X11/Wayland and ALSA development packages
-(Debian/Ubuntu: `libx11-dev libxkbcommon-dev libwayland-dev libasound2-dev`).
+Linux sound also needs the ALSA development package, and the window needs the xkbcommon
+libraries at run time (Debian/Ubuntu: `libasound2-dev libxkbcommon0 libxkbcommon-x11-0`).
 
 ```sh
 cd host
@@ -35,7 +35,14 @@ By default it takes the library and assets from `../app/src/main` and keeps save
 | M | Map |
 | Tab | Menu |
 | Esc or Backspace | Android back key |
+| F11 or Alt+Enter | Fullscreen on and off |
 | Numeric keypad, `-`, `=` | Phone keypad `0`–`9`, `*`, `#` |
+
+**Window.** The window can be resized freely; the game picture is enlarged by the largest
+whole number that fits and centred, with black bars around it, so every pixel stays the
+same size. `--stretch` instead fills the window as far as its shape allows: a bigger
+picture, but some pixels come out a little wider than others. F11 or Alt+Enter switches
+fullscreen, `--fullscreen` starts that way, and `--scale N` sets the starting size.
 
 **Language.** The bundled configuration is set to Chinese. `--lang en` (or `ko`, `ja`,
 `zh`, `es`, `fr`, `de`) changes it: the host sets the language through the game's own
@@ -89,7 +96,8 @@ To build without the window and sound dependencies:
 - `jni.rs` and `java.rs` stand in for Android's Java runtime and the game's Java classes:
   strings, byte arrays, fonts (`font.rs`), timers, audio requests.
 - `session.rs` boots the game in the order the Android activity did and exposes "render a
-  frame" and "deliver input". `window.rs` and the headless loop in `main.rs` sit on top.
+  frame" and "deliver input". `window.rs` (winit and softbuffer: a resizable window drawn
+  in software) and the headless loop in `main.rs` sit on top.
 
 The game renders in software: each frame it fills a 480×320 RGB565 buffer
 (`BitmapSurfaceView.FillBuffer`), so the host needs no OpenGL.

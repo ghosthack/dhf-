@@ -46,7 +46,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake libx11-dev libxkbcommon-dev libwayland-dev libasound2-dev
+            cmake libasound2-dev
 
       - name: Show tool versions
         run: |
