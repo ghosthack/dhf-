@@ -30,10 +30,12 @@ By default it takes the library and assets from `../app/src/main` and keeps save
 | X | Button B: jump |
 | C | Button C |
 | A, S | Quick slots 1 and 2 (potions) |
+| `1`–`5` | Skill icons, left column from the top |
+| `6`–`0` | Skill icons, right column from the top |
 | M | Map |
 | Tab | Menu |
 | Esc or Backspace | Android back key |
-| `0`–`9`, `-`, `=` | Phone keypad `0`–`9`, `*`, `#` |
+| Numeric keypad, `-`, `=` | Phone keypad `0`–`9`, `*`, `#` |
 
 **Language.** The bundled configuration is set to Chinese. `--lang en` (or `ko`, `ja`,
 `zh`, `es`, `fr`, `de`) changes it: the host sets the language through the game's own
