@@ -47,6 +47,7 @@ struct Args {
     /// `--lang`: (two-letter code reported to the game, the game's own language code).
     language: Option<(String, u8)>,
     country: String,
+    add_cubics: Option<u32>,
     fonts: Vec<PathBuf>,
     /// Scripted input for headless runs: (frame, event).
     script: Vec<(u32, Input)>,
@@ -63,6 +64,8 @@ fn usage() -> ! {
          \x20 --font PATH       font file for in-game text; repeat to add fallbacks (default: system fonts)\n\
          \x20 --lang CODE       set the game language: ko, en, ja, zh, es, fr or de\n\
          \x20                   (default: whatever the save directory's Config.dat says)\n\
+         \x20 --add-cubics N    give N Cubics (shop currency) to the game you load or start;\n\
+         \x20                   save in the game afterwards to keep them\n\
          \x20 --country CODE    country code reported to the game (default: US)\n\
          \x20 --screen WxH      device resolution reported to the game (default: 480x320)\n\
          \x20 --scale N         window scale: 1, 2 or 4 (default: 2)\n\
@@ -100,6 +103,7 @@ fn parse_args() -> Args {
         screen: (480, 320),
         language: None,
         country: "US".into(),
+        add_cubics: None,
         fonts: Vec::new(),
         script: Vec::new(),
         opts: Options::default(),
@@ -129,6 +133,7 @@ fn parse_args() -> Args {
                 a.language = Some((v, *code));
             }
             "--country" => a.country = val(),
+            "--add-cubics" => a.add_cubics = Some(num(&val())),
             "--screen" => {
                 let v = val();
                 let (w, h) = v.split_once('x').unwrap_or_else(|| usage());
@@ -261,6 +266,12 @@ fn run(a: &Args) -> Result<(), String> {
             eprintln!("[host] game language set to `{name}` in {}", a.save.join("Config.dat").display());
             s = boot()?;
         }
+    }
+    if a.add_cubics.is_some() && digest != KNOWN_LIB_SHA256 {
+        return Err("--add-cubics only works with the 1.07 library this host was tested with".into());
+    }
+    if let Some(n) = a.add_cubics {
+        s.give_cubics_in_game(n).map_err(|e| e.to_string())?;
     }
     let r = if a.headless {
         headless(&mut s, a)

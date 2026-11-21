@@ -341,6 +341,61 @@ fn language_change_is_saved_through_the_game() {
 }
 
 #[test]
+fn cubics_are_granted_once_a_save_is_running() {
+    let save = temp_dir("save");
+    let mut s = Session::boot(machine(&save), (480, 320)).unwrap();
+    s.give_cubics_in_game(500).unwrap();
+    let mut ms = 0;
+    let mut run = |s: &mut Session, frames: u32| {
+        for _ in 0..frames {
+            s.render(ms).unwrap();
+            let step = s.take_timer().unwrap_or(40).max(1) as u64;
+            ms += step;
+            s.m.clock.advance_ms(step);
+        }
+    };
+    // On the title screen and the load list nothing is granted, even though the game
+    // reads every save file to draw that list.
+    run(&mut s, 100);
+    for (x, y) in [(240, 160), (240, 210)] {
+        s.input(Input::TouchDown(x, y)).unwrap();
+        run(&mut s, 2);
+        s.input(Input::TouchUp(x, y, x, y)).unwrap();
+        run(&mut s, 40);
+    }
+    assert_eq!(s.cubics().unwrap(), Some(0));
+    // Load the first slot, which has no Cubics of its own.
+    for _ in 0..2 {
+        s.input(Input::TouchDown(240, 100)).unwrap();
+        run(&mut s, 2);
+        s.input(Input::TouchUp(240, 100, 240, 100)).unwrap();
+        run(&mut s, 28);
+    }
+    run(&mut s, 80);
+    assert_eq!(s.cubics().unwrap(), Some(500));
+    // It is a one-off: more play does not add more.
+    run(&mut s, 60);
+    assert_eq!(s.cubics().unwrap(), Some(500));
+
+    // The second slot already holds 29,285. Topping up a large stack works too (the
+    // game itself refuses to grow a stack past 999), and stops at the game's maximum.
+    for (add, expect) in [(100, 29_385), (5000, 32_767)] {
+        let save = temp_dir("save");
+        let mut s = Session::boot(machine(&save), (480, 320)).unwrap();
+        s.give_cubics_in_game(add).unwrap();
+        run(&mut s, 100);
+        for (x, y) in [(240, 160), (240, 210), (240, 160), (240, 160)] {
+            s.input(Input::TouchDown(x, y)).unwrap();
+            run(&mut s, 2);
+            s.input(Input::TouchUp(x, y, x, y)).unwrap();
+            run(&mut s, 28);
+        }
+        run(&mut s, 80);
+        assert_eq!(s.cubics().unwrap(), Some(expect));
+    }
+}
+
+#[test]
 fn headless_runs_are_reproducible() {
     let frame = || {
         let save = temp_dir("save");

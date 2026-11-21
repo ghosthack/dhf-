@@ -534,6 +534,14 @@ impl Machine {
         Some(TRAP_BASE + 4 * (slot as u32 + 1))
     }
 
+    /// Count how often the guest executes the instruction at `addr` (a function entry).
+    pub fn watch(&mut self, addr: u32) -> R<Rc<Cell<u32>>> {
+        let count = Rc::new(Cell::new(0u32));
+        let c = count.clone();
+        cpu(self.uc.add_code_hook(addr as u64, addr as u64, move |_, _, _| c.set(c.get().wrapping_add(1))), "hook")?;
+        Ok(count)
+    }
+
     pub fn export(&self, name: &str) -> R<u32> {
         self.img.exports.get(name).map(|v| LIB_BASE + v).ok_or_else(|| Fault::Other(format!("library does not export `{name}`")))
     }

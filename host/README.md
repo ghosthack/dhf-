@@ -36,6 +36,12 @@ functions and the game writes it to `Config.dat` in the save directory, so it on
 to be given once. It can also be changed in the game under Menu → System → Option →
 Language Change.
 
+**Shops.** The Cash store needed the publisher's servers and is dead. The Cubic store
+works offline, but Cubics could only be bought with real money. `--add-cubics N` gives
+the game you load or start N Cubics, about a second after you arrive in the game world.
+The game holds at most 32,767. Buying something saves the game; otherwise save from the
+menu to keep them.
+
 **Text.** The game draws text with the system font. The host looks for common Latin and
 CJK fonts; pass `--font PATH` (repeatable, earlier fonts win) to choose. Korean, Japanese
 and Chinese need a CJK font, otherwise text shows as empty boxes.

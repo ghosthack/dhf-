@@ -53,7 +53,19 @@ pub struct Session {
     frame_ref: u32,
     pub width: u32,
     pub height: u32,
+    /// Cubics still to be handed to the player once a game is running.
+    pending_cubics: Option<u32>,
+    /// How often the game has loaded a map, and how often it has read a save file.
+    map_loads: Option<Rc<std::cell::Cell<u32>>>,
+    save_loads: Option<Rc<std::cell::Cell<u32>>>,
+    /// Frames rendered since the game last loaded a map.
+    frames_in_map: Option<u32>,
 }
+
+/// Item id of the Cubic, the game's premium currency (it is an inventory item).
+const ITEM_CUBIC: u32 = 5632;
+/// Item counts are signed 16-bit in the game.
+const MAX_ITEM_COUNT: u32 = 32767;
 
 impl Session {
     pub fn boot(mut m: Machine, screen: (u32, u32)) -> R<Session> {
@@ -83,7 +95,7 @@ impl Session {
         }
         let frame = Rc::new(RefCell::new(vec![0u8; (width * height * 2) as usize]));
         let frame_ref = m.jni.new_ref(Obj::Bytes(frame.clone()))?;
-        Ok(Session { m, class, view, frame, frame_ref, width, height })
+        Ok(Session { m, class, view, frame, frame_ref, width, height, pending_cubics: None, map_loads: None, save_loads: None, frames_in_map: None })
     }
 
     /// Run one game frame (`BitmapSurfaceView.onDraw`). `elapsed_ms` is time since boot.
@@ -91,6 +103,105 @@ impl Session {
         // FillBuffer(byte[] buf, int w, int h, int stride, long elapsedMs)
         let args = [self.frame_ref, self.width, self.height, self.width * 2, elapsed_ms as u32, (elapsed_ms >> 32) as u32];
         self.m.call_native(&format!("{SURFACE_VIEW}FillBuffer"), self.view, &args)?;
+        if self.pending_cubics.is_some() {
+            self.grant_pending_cubics()?;
+        }
+        Ok(())
+    }
+
+    /// Give `n` Cubics to the player once a game (loaded or new) is running.
+    pub fn give_cubics_in_game(&mut self, n: u32) -> R<()> {
+        let (map, save) = (self.m.export("IMAP_Load")?, self.m.export("IEU_SaveLoad_Load")?);
+        self.map_loads = Some(self.m.watch(map)?);
+        self.save_loads = Some(self.m.watch(save)?);
+        self.pending_cubics = Some(n);
+        Ok(())
+    }
+
+    /// The player data of the running game, or `None` on the title screen and menus.
+    fn player(&mut self) -> R<Option<u32>> {
+        // IGM_GetPlayerGObject(i) is `IA_Get(state->objects, i)` and does not check that
+        // the list exists, so look first. The state pointer is read the way the function
+        // itself reads it: two literals after its code locate a slot in the GOT.
+        let f = self.m.export("IGM_GetPlayerGObject")?;
+        let slot = (f + 0x14).wrapping_add(self.m.mem.r32(f + 0x1c)?).wrapping_add(self.m.mem.r32(f + 0x20)?);
+        let state = self.m.mem.r32(slot)?;
+        let list = self.m.mem.r32(state.wrapping_add(0x8c))?;
+        if list == 0 || self.m.mem.r32(list.wrapping_add(8))? == 0 {
+            return Ok(None);
+        }
+        let object = self.m.call(f, &[0])?;
+        if object == 0 {
+            return Ok(None);
+        }
+        // The player's data hangs off the game object (as in IEU_SaveLoad_CubicSave). It
+        // only exists once a game is loaded; check its item lists before trusting it.
+        let data = self.m.mem.r32(object.wrapping_add(0x40))?;
+        if self.m.heap.capacity(data).map_or(true, |c| c < 0x2d4) {
+            return Ok(None);
+        }
+        for list in [0x2b4, 0x2bc, 0x2d0] {
+            let l = self.m.mem.r32(data + list)?;
+            if self.m.heap.capacity(l).is_none() {
+                return Ok(None);
+            }
+        }
+        Ok(Some(data))
+    }
+
+    /// Cubics the player holds, if a game is running.
+    pub fn cubics(&mut self) -> R<Option<u32>> {
+        let Some(player) = self.player()? else { return Ok(None) };
+        let count = self.m.export("IEO_Player_GetCountItem")?;
+        Ok(Some(self.m.call(count, &[player, ITEM_CUBIC])? as u16 as u32))
+    }
+
+    /// Hand over `pending_cubics` a second after the game has entered a map, with the
+    /// same three calls the game makes when it restores Cubics from a save file.
+    ///
+    /// Reading a save replaces the player's items, and the game also reads every save
+    /// just to draw the load list, so "a save was read" is not the moment to act. A map
+    /// load with no save read after it is: that only happens once play has started.
+    fn grant_pending_cubics(&mut self) -> R<()> {
+        let take = |c: &Option<Rc<std::cell::Cell<u32>>>| c.as_ref().map_or(0, |c| c.replace(0));
+        if take(&self.save_loads) > 0 {
+            self.frames_in_map = None;
+        }
+        if take(&self.map_loads) > 0 {
+            self.frames_in_map = Some(0);
+        }
+        match &mut self.frames_in_map {
+            Some(n) if *n >= 25 => {}
+            Some(n) => {
+                *n += 1;
+                return Ok(());
+            }
+            None => return Ok(()),
+        }
+        let Some(player) = self.player()? else { return Ok(()) };
+        let Some(want) = self.pending_cubics.take() else { return Ok(()) };
+        let before = self.cubics()?.unwrap_or(0);
+        let total = before.saturating_add(want).min(MAX_ITEM_COUNT);
+        if total > before {
+            // Adding to an existing stack is refused above 999, but a new stack may hold
+            // any count. So do what the game's own load code does: drop the whole stack
+            // (count -1), then acquire the new total.
+            let export = |s: &Self, name: &str| s.m.export(name);
+            let (drop_all, load, acquire, delete) =
+                (export(self, "IEO_Player_DropItem2")?, export(self, "IItem_Load")?, export(self, "IEO_Player_AcqItem")?, export(self, "IItem_Delete")?);
+            let item = self.m.call(load, &[ITEM_CUBIC])?;
+            if item == 0 {
+                return Err(Fault::Other("the game could not create a Cubic item".into()));
+            }
+            self.m.call(drop_all, &[player, 0, ITEM_CUBIC, u32::MAX])?;
+            self.m.call(acquire, &[player, item, total])?;
+            self.m.call(delete, &[item])?;
+        }
+        let after = self.cubics()?.unwrap_or(0);
+        eprintln!(
+            "[host] Cubics: {before} -> {after}{}. Save in the game (Menu, System, Save) to keep them.",
+            if total < before.saturating_add(want) { format!(" (the game holds at most {MAX_ITEM_COUNT})") } else { String::new() }
+        );
         Ok(())
     }
 
