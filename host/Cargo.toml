@@ -26,3 +26,6 @@ audio = ["dep:rodio"]
 [profile.release]
 opt-level = 3
 debug = 1
+
+[build-dependencies]
+sha2 = "0.10"

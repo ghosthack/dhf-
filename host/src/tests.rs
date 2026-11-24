@@ -31,10 +31,14 @@ fn small_assets() -> PathBuf {
 }
 
 fn machine(save: &Path) -> Machine {
+    machine_with_options(save, Options::default())
+}
+
+fn machine_with_options(save: &Path, opts: Options) -> Machine {
     let lib = std::fs::read(LIB).expect("library present in the repository");
     let vfs = Vfs::new(Path::new(ASSETS), save).unwrap();
     let java = java::Java { language: "en".into(), country: "US".into(), ..Default::default() };
-    Machine::new(&lib, vfs, java, Clock::Virtual { micros: 1_325_376_000_000_000 }, Options::default()).unwrap()
+    Machine::new(&lib, vfs, java, Clock::Virtual { micros: 1_325_376_000_000_000 }, opts).unwrap()
 }
 
 fn files_in(dir: &Path) -> Vec<String> {
@@ -288,6 +292,48 @@ fn printf_formats_like_c() {
 }
 
 #[test]
+fn aot_division_matches_unicorn_registers_and_stack() {
+    use unicorn_engine::RegisterARM::*;
+
+    let mut baseline = machine(&temp_dir("division-unicorn"));
+    let mut hybrid = machine_with_options(&temp_dir("division-aot"), Options { aot: true, ..Options::default() });
+    let address = baseline.export("__aeabi_idiv").unwrap();
+    let mut samples = Vec::new();
+    for numerator in [i32::MIN, i32::MIN + 1, -1003, -8, -1, 0, 1, 8, 1003, i32::MAX] {
+        for denominator in [i32::MIN, -1003, -8, -3, -1, 0, 1, 3, 8, 1003, i32::MAX] {
+            samples.push((numerator as u32, denominator as u32));
+        }
+    }
+    let mut seed = 0x1234_5678u32;
+    for _ in 0..512 {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let numerator = seed;
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        // Varied widths exercise divisions with a multi-iteration quotient loop.
+        let denominator = (seed as i32 >> (numerator % 31)) as u32;
+        samples.push((numerator, denominator));
+    }
+    let mut expected_calls = 0;
+    for (numerator, denominator) in samples {
+        for m in [&mut baseline, &mut hybrid] {
+            m.set_reg(R3, 0xdead_beef).unwrap();
+            m.set_reg(APSR_NZCV, numerator & 0xf000_0000).unwrap();
+            m.call(address, &[numerator, denominator]).unwrap();
+        }
+        for register in [R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, CPSR, SP, LR, PC] {
+            assert_eq!(
+                baseline.reg(register).unwrap(), hybrid.reg(register).unwrap(),
+                "{register:?} differs for {numerator:#x} / {denominator:#x}",
+            );
+        }
+        let sp = baseline.reg(SP).unwrap();
+        assert_eq!(baseline.mem.slice(sp - 64, 64).unwrap(), hybrid.mem.slice(sp - 64, 64).unwrap());
+        expected_calls += u64::from(denominator != 0);
+    }
+    assert_eq!(hybrid.aot.as_ref().unwrap().calls.get(), expected_calls);
+}
+
+#[test]
 fn the_game_boots_renders_and_stays_inside_its_sandbox() {
     let save = temp_dir("save");
     let mut s = Session::boot(machine(&save), (480, 320)).unwrap();
@@ -516,5 +562,37 @@ fn bundled_audio_decodes() {
         let src = rodio::Decoder::new(std::io::BufReader::new(std::fs::File::open(&first).unwrap())).unwrap();
         assert!(src.sample_rate() >= 8000);
         assert!(src.take(1000).count() == 1000, "{} should decode", first.display());
+    }
+}
+
+#[test]
+fn generated_aot_segments_match_unicorn_during_gameplay() {
+    let mut m = machine_with_options(&temp_dir("aot-replay"), Options { aot: true, ..Options::default() });
+    m.java.text = Some(crate::font::Text::load(&[]));
+    m.aot.as_ref().unwrap().verification.enabled.set(true);
+    let mut s = Session::boot(m, (480, 320)).unwrap();
+
+    let taps = [(100, 240, 160), (130, 240, 210), (172, 240, 100), (202, 240, 100)];
+    let mut ms = 0;
+    for frame in 0..500 {
+        for (at, x, y) in taps {
+            if frame == at {
+                s.input(Input::TouchDown(x, y)).unwrap();
+            }
+            if frame == at + 2 {
+                s.input(Input::TouchUp(x, y, x, y)).unwrap();
+            }
+        }
+        s.render(ms).unwrap();
+        let step = s.take_timer().unwrap_or(40).max(1) as u64;
+        ms += step;
+        s.m.clock.advance_ms(step);
+    }
+
+    let status = s.m.aot.as_ref().unwrap();
+    assert!(status.calls.get() > 0, "division fast path should run");
+    let checked = status.verification.verified.borrow();
+    for (index, translation) in crate::aot_blocks::translations().iter().enumerate() {
+        assert!(checked.contains(&index), "{} didn't execute a verified segment", translation.name);
     }
 }

@@ -1,12 +1,13 @@
 //! The emulated machine: CPU, guest memory, and the trap mechanism through which the
 //! guest reaches the host.
 //!
-//! The guest has exactly one way out of the emulator: jumping to an address in the trap
-//! page. Each imported function and each JNI table slot is bound to one such address. A
+//! Guest calls to host services go through the trap page. Each imported function and
+//! each JNI table slot is bound to an address in that page. A
 //! code hook on that page records the address and stops the CPU; the handler then runs as
 //! ordinary Rust in [`Machine::run`], outside the emulator, with bounds-checked access to
 //! guest memory. Nothing in the guest can reach a host function that is not in the table.
 
+use crate::aot;
 use crate::elf::{self, Image};
 use crate::heap::Heap;
 use crate::java::Java;
@@ -55,6 +56,8 @@ pub struct Options {
     pub trace: bool,
     /// Log file-system and Java-layer activity.
     pub verbose: bool,
+    /// Enable native translations for the known library.
+    pub aot: bool,
     /// Count executed guest instructions per function (slow; for performance work).
     pub profile: bool,
 }
@@ -65,6 +68,7 @@ pub struct Machine {
     pub heap: Heap,
     pub img: Image,
     pub opts: Options,
+    pub aot: Option<Rc<aot::Status>>,
     pub vfs: Vfs,
     pub jni: Jni,
     pub java: Java,
@@ -173,6 +177,7 @@ impl Machine {
             heap: Heap::new(HEAP_BASE, HEAP_LEN),
             img,
             opts,
+            aot: None,
             vfs,
             jni: Jni::default(),
             java,
@@ -275,6 +280,10 @@ impl Machine {
                     *prof.borrow_mut().entry(addr as u32).or_insert(0) += (size / 4) as u64;
                 })
                 .map_err(|e| format!("hook: {e:?}"))?;
+        }
+
+        if m.opts.aot {
+            m.aot = aot::install(&mut m.uc, lib).map_err(|e| format!("AOT hook: {e:?}"))?;
         }
 
         // Enable VFP: full access to cp10/cp11, then FPEXC.EN.
@@ -443,6 +452,9 @@ impl Machine {
             self.hit.set(0);
             let res = self.uc.emu_start(pc as u64, NEVER, 0, 0);
             let t = self.hit.get();
+            if let Some(err) = self.aot.as_ref().and_then(|status| status.error.take()) {
+                return Err(Fault::Cpu(format!("AOT register handoff: {err:?}\n{}", self.state())));
+            }
             if let Some(n) = self.excp.take() {
                 let what = match n {
                     1 => "undefined instruction",
@@ -455,6 +467,20 @@ impl Machine {
             }
             if let Err(e) = res {
                 return Err(Fault::Cpu(format!("{e:?}\n{}", self.state())));
+            }
+            if let Some(status) = &self.aot {
+                status.skip.set(None);
+                if let Some((index, address)) = status.pending.take() {
+                    let (next, progressed) = cpu(status.run_segment(&mut self.uc, &mut self.mem, index, address), "AOT register handoff")?;
+                    if progressed {
+                        status.count_segment(index);
+                    }
+                    if next & !1 == address {
+                        status.skip.set(Some(address));
+                    }
+                    pc = next;
+                    continue;
+                }
             }
             if t == RET_ADDR {
                 return Ok(());

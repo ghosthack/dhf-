@@ -59,6 +59,8 @@ impl Drop for Region {
 #[derive(Default)]
 pub struct Mem {
     regions: Vec<Region>,
+    #[cfg(test)]
+    pub aot_write_log: Option<std::collections::BTreeMap<u32, u8>>,
 }
 
 impl Mem {
@@ -107,7 +109,14 @@ impl Mem {
             return Ok(&mut []);
         }
         let (r, off) = self.find(addr, len, true)?;
-        Ok(unsafe { std::slice::from_raw_parts_mut(r.ptr.add(off), len as usize) })
+        let bytes = unsafe { std::slice::from_raw_parts_mut(r.ptr.add(off), len as usize) };
+        #[cfg(test)]
+        if let Some(log) = &mut self.aot_write_log {
+            for (offset, &byte) in bytes.iter().enumerate() {
+                log.entry(addr + offset as u32).or_insert(byte);
+            }
+        }
+        Ok(bytes)
     }
 
     /// Bytes available from `addr` to the end of its region (for bounded string scans).

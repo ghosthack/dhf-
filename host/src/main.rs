@@ -4,6 +4,10 @@
 //! see or do is provided by this program: memory, files, time, the "Java layer" and the
 //! frame buffer. See `host/README.md` for the design and the security model.
 
+mod aot;
+mod aot_blocks;
+#[cfg(test)]
+mod aot_verify;
 mod audio;
 mod elf;
 mod fmt;
@@ -28,7 +32,11 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 /// SHA-256 of the original `libdhunter.so` from version 1.07.
-const KNOWN_LIB_SHA256: &str = "69f4be20fb14ccc43297e2eb9e256e8fe1061746ffa71ec74cf1083d6f813218";
+const KNOWN_LIB_SHA256: &str = aot_spec::LIB_SHA256;
+
+#[path = "../aot/spec.rs"]
+#[allow(dead_code)]
+mod aot_spec;
 
 /// Languages the game ships, with its internal code for each (0 is Korean).
 const LANGUAGES: &[(&str, u8)] = &[("ko", 0), ("en", b'E'), ("ja", b'J'), ("zh", b'C'), ("es", b'S'), ("fr", b'F'), ("de", b'G')];
@@ -89,7 +97,8 @@ fn usage() -> ! {
          diagnostics:\n\
          \x20 --verbose         log file, audio and Java-layer activity\n\
          \x20 --trace           log every host call the game makes\n\
-         \x20 --profile         count guest instructions per function (slow)"
+         \x20 --aot             try the native ARM translations on the bundled library\n\
+         \x20 --profile         count Unicorn guest instructions per function (slow)"
     );
     std::process::exit(2)
 }
@@ -175,6 +184,7 @@ fn parse_args() -> Args {
             "--verbose" => a.opts.verbose = true,
             "--trace" => a.opts.trace = true,
             "--profile" => a.opts.profile = true,
+            "--aot" => a.opts.aot = true,
             _ => usage(),
         }
     }
@@ -297,6 +307,12 @@ fn run(a: &Args) -> Result<(), String> {
     };
 
     let m = &s.m;
+    if a.opts.aot {
+        match &m.aot {
+            Some(status) => status.report(),
+            None => eprintln!("[host] AOT unavailable for this library; using Unicorn"),
+        }
+    }
     if a.opts.verbose || a.opts.profile {
         let mut used: Vec<_> = m.imports.iter().filter(|i| i.calls > 0).collect();
         used.sort_by_key(|i| std::cmp::Reverse(i.calls));

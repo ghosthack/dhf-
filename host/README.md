@@ -114,6 +114,39 @@ cargo run --release -- --headless --frames 300 --tap 100:240,160 --dump frames -
 To build without the window and sound dependencies:
 `cargo build --release --no-default-features` (headless only).
 
+### Experimental hybrid AOT
+
+Pass `--aot` to use the build-time translations for the original 1.07 library. Cargo
+generates native Rust blocks for nine profiled A32 routines and compiles a dedicated
+translation for `__aeabi_idiv`. The SHA-256 check pins both the build and dispatch to
+the known library. At runtime the translated blocks reuse the checked guest memory
+and hand back to Unicorn for external calls, unsupported instructions or state,
+and memory accesses that need the emulator's own checks. `--aot` reports native
+segment counts at exit. `--profile` counts Unicorn execution, so profile without
+`--aot` when comparing the guest routines.
+
+This 500-frame replay loads the first saved game and runs without frame dumps for
+timing. Use fresh save directories for each run.
+
+```bash
+cargo build --release --locked
+scratch=$(mktemp -d)
+replay=(--headless --frames 500 --tap 100:240,160 --tap 130:240,210
+        --tap 172:240,100 --tap 202:240,100 --key 330:-4 --key 370:-5)
+run=0
+for mode in unicorn hybrid hybrid unicorn unicorn hybrid; do
+    run=$((run + 1))
+    flags=()
+    if [[ $mode == hybrid ]]; then flags+=(--aot); fi
+    target/release/dhost "${replay[@]}" "${flags[@]}" --save "$scratch/$mode-$run"
+done
+```
+
+On the x86-64 Codex cloud host, median wall time over three runs per mode was
+**4.33 s with Unicorn** and **6.96 s with hybrid AOT**. The hybrid run exercised all
+ten routines. A separate run with `--dump DIR --dump-every 1` produced
+byte-identical frames and save files in both modes.
+
 ## How it works
 
 ```
